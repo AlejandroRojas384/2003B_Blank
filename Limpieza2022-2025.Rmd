@@ -1,0 +1,614 @@
+---
+title: "Limpieza"
+author: "Jose Alejandro Rojas Castro"
+date: "2025-08-21"
+output: html_document
+---
+
+# Limpieza 2025
+
+```{r}
+# install.packages(c("readxl","dplyr","purrr","janitor","stringr","lubridate","readr"))
+library(readxl)
+library(dplyr)
+library(purrr)
+library(janitor)
+library(stringr)
+library(lubridate)
+library(readr)
+
+# ---------- Config ----------
+archivo_2025 <- "data/BD 2025.xlsx"
+
+# columnas objetivo en el orden deseado
+cols_final <- c("LOCATION","DATE","CO","NO","NO2","NOX","O3","PM10","PM2.5",
+                "PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR")
+
+# nombres que pueden venir "limpios" tras clean_names()
+# mapeo -> nombre final (tal como lo quieres)
+map_names <- c(
+  "date"   = "DATE",
+  "co"     = "CO",
+  "no"     = "NO",
+  "no2"    = "NO2",
+  "nox"    = "NOX",
+  "o3"     = "O3",
+  "pm10"   = "PM10",
+  "pm2_5"  = "PM2.5",
+  "prs"    = "PRS",
+  "rainf"  = "RAINF",
+  "rh"     = "RH",
+  "so2"    = "SO2",
+  "sr"     = "SR",
+  "tout"   = "TOUT",
+  "wsr"    = "WSR",
+  "wdr"    = "WDR"
+)
+
+# ---------- Helpers ----------
+
+# 1) Parsear DATE: admite texto en varios formatos o serial de Excel
+parse_date_flex <- function(x) {
+  # si es numeric: asumir serial Excel
+  if (is.numeric(x)) {
+    return(as.POSIXct(x * 86400, origin = "1899-12-30", tz = "UTC"))
+  }
+  # si viene como texto:
+  xx <- as.character(x)
+  xx[xx == ""] <- NA
+  out <- suppressWarnings(parse_date_time(
+    xx,
+    orders = c("Ymd HMS","Y-m-d H:M:S","Y/m/d H:M:S",
+               "dmY HMS","d/m/Y H:M:S","m/d/Y H:M:S",
+               "Ymd","Y-m-d","Y/m/d","d/m/Y","m/d/Y","dmY","mdY"),
+    tz = "UTC"
+  ))
+  # si todos NA, intentar convertir texto->número->serial
+  if (all(is.na(out))) {
+    num <- suppressWarnings(parse_double(xx))
+    out <- as.POSIXct(num * 86400, origin = "1899-12-30", tz = "UTC")
+  }
+  out
+}
+
+# 2) Convertir a numérico: vacíos/“NULL” -> NA, extrae número si hay unidades pegadas
+to_num <- function(v) {
+  v <- as.character(v)
+  v[v == "" | tolower(v) == "null"] <- NA
+  suppressWarnings(parse_number(v))
+}
+
+# 3) Detectar y eliminar una fila de “unidades” (ppm, ppb, µg/m3, etc.)
+es_fila_unidades <- function(df_clean) {
+  if (!"date" %in% names(df_clean)) return(FALSE)
+  # mirar la PRIMERA(s) filas: si casi todas las columnas no-date son texto con letras -> unidades
+  cand <- df_clean[1, setdiff(names(df_clean), "date"), drop = FALSE]
+  vals <- unlist(cand, use.names = FALSE)
+  vals <- as.character(vals)
+  # cuenta cuántas celdas tienen letras (ppm, ppb, mmHg, kW/m2, °C, %)
+  sum_letras <- sum(grepl("[A-Za-z°%µ/]", vals, perl = TRUE), na.rm = TRUE)
+  sum_letras >= max(4, floor(0.5 * ncol(cand)))  # criterio sencillo y robusto
+}
+
+# ---------- Proceso por hoja (estación) ----------
+
+procesar_hoja <- function(hoja) {
+  # leo todo como TEXTO para controlar NAs y evitar warnings
+  df <- read_excel(archivo_2025, sheet = hoja, col_types = "text") %>%
+        clean_names()
+
+  # si la fila 2 trae unidades (ppm, ppb...), la eliminamos
+  if (nrow(df) > 0 && es_fila_unidades(df)) {
+    df <- df[-1, , drop = FALSE]
+  }
+
+  # renombrar columnas según el mapa (solo las que existan)
+  comunes <- intersect(names(df), names(map_names))
+  names(df)[match(comunes, names(df))] <- map_names[comunes]
+
+  # crear LOCATION
+  df$LOCATION <- hoja
+
+  # asegurar DATE
+  if (!"DATE" %in% names(df)) df$DATE <- NA_character_
+
+  # convertir numéricas (todas excepto LOCATION y DATE)
+  num_cols <- setdiff(intersect(cols_final, names(df)), c("LOCATION","DATE"))
+  df[num_cols] <- lapply(df[num_cols], to_num)
+
+  # convertir DATE
+  df$DATE <- parse_date_flex(df$DATE)
+
+  # añadir columnas faltantes con NA
+  faltantes <- setdiff(cols_final, names(df))
+  for (c in faltantes) {
+    if (c %in% c("LOCATION")) df[[c]] <- NA_character_ else
+      if (c == "DATE") df[[c]] <- as.POSIXct(NA) else
+        df[[c]] <- NA_real_
+  }
+
+  # mantener solo las columnas del esquema y en el orden correcto
+  df_final <- df[, cols_final]
+
+  # eliminar filas completamente vacías (todas numéricas NA y DATE NA)
+  all_num <- setdiff(cols_final, c("LOCATION","DATE"))
+  vacia <- is.na(df_final$DATE) & rowSums(!is.na(df_final[, all_num, drop = FALSE])) == 0
+  df_final <- df_final[!vacia, ]
+
+  df_final
+}
+
+# ---------- Ejecutar: todas las hojas de 2025 ----------
+hojas <- excel_sheets(archivo_2025)
+datos_2025 <- map_dfr(hojas, procesar_hoja) %>%
+  arrange(LOCATION, DATE)
+
+# ---------- Guardar ----------
+write.csv(datos_2025, "2025.csv", row.names = FALSE)
+
+# Vista rápida
+print(head(datos_2025))
+
+```
+
+# Limpieza 2024
+
+
+```{r}
+
+
+archivo_2024 <- "data/BD 2024.xlsx"
+
+cols_final <- c("LOCATION","DATE","CO","NO","NO2","NOX","O3",
+                "PM10","PM2.5","PRS","RAINF","RH","SO2",
+                "SR","TOUT","WSR","WDR")
+
+cols_excel <- c("Fecha y hora","CO (ppm)","NO (ppb)","NO2 (ppb)","NOX (ppb)",
+                "O3 (ppb)","PM10 (ug/m3)","PM2.5 (ug/m3)","PRS (mmHg)",
+                "RAINF (mm/h)","RH (%)","SO2 (ppb)","SR (kW/m2)",
+                "TOUT (ºC)","WSR (km/h)","WDR (azimutal)")
+
+procesar_hoja <- function(hoja) {
+  df <- read_excel(archivo_2024, sheet = hoja,
+                   col_names = cols_excel, skip = 1, col_types = "text")
+  
+  df <- df %>%
+    mutate(LOCATION = hoja) %>%
+    rename(
+      DATE   = "Fecha y hora",
+      CO     = "CO (ppm)",
+      NO     = "NO (ppb)",
+      NO2    = "NO2 (ppb)",
+      NOX    = "NOX (ppb)",
+      O3     = "O3 (ppb)",
+      PM10   = "PM10 (ug/m3)",
+      `PM2.5`= "PM2.5 (ug/m3)",
+      PRS    = "PRS (mmHg)",
+      RAINF  = "RAINF (mm/h)",
+      RH     = "RH (%)",
+      SO2    = "SO2 (ppb)",
+      SR     = "SR (kW/m2)",
+      TOUT   = "TOUT (ºC)",
+      WSR    = "WSR (km/h)",
+      WDR    = "WDR (azimutal)"
+    )
+  
+  # convertir fecha
+  df <- df %>%
+    mutate(DATE = case_when(
+      # si es número serial de Excel
+      suppressWarnings(!is.na(as.numeric(DATE))) ~ as.POSIXct(as.numeric(DATE)*86400, origin = "1899-12-30", tz="UTC"),
+      # si es texto en formato día/mes/año
+      !is.na(dmy_hm(DATE, quiet = TRUE)) ~ dmy_hm(DATE, quiet = TRUE),
+      # si es texto en formato mes/día/año
+      !is.na(mdy_hm(DATE, quiet = TRUE)) ~ mdy_hm(DATE, quiet = TRUE),
+      TRUE ~ NA
+    ))
+  
+  # convertir las demás a numérico
+  num_cols <- setdiff(cols_final, c("LOCATION","DATE"))
+  df[num_cols] <- lapply(df[num_cols], function(x) {
+    x[x == ""] <- NA
+    suppressWarnings(as.numeric(x))
+  })
+  
+  df <- df[, cols_final]
+  df
+}
+
+# procesar todas las hojas
+hojas <- excel_sheets(archivo_2024)
+datos_2024 <- map_dfr(hojas, procesar_hoja)
+
+# guardar
+write_csv(datos_2024, "2024.csv")
+
+
+head(datos_2024, 40)
+
+```
+
+# Limpieza 2022 y 2023
+
+```{r}
+# 1) Archivo y hojas (excluye "CATÁLOGO", en el mismo orden del Excel)
+archivo_2223 <- "data/BD 2022-2023.xlsx"
+sheets_2223  <- setdiff(excel_sheets(archivo_2223), "CATÁLOGO")
+
+# 2) Esquema final
+cols_final <- c("LOCATION","DATE","CO","NO","NO2","NOX","O3",
+                "PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR")
+
+# 3) Helper fecha: serial de Excel o texto (d/m/Y o m/d/Y)
+parse_date_safe <- function(x){
+  num <- suppressWarnings(as.numeric(x))
+  out <- rep(as.POSIXct(NA, tz="UTC"), length(x))
+  m <- !is.na(num)
+  if (any(m)) out[m] <- as.POSIXct(num[m]*86400, origin="1899-12-30", tz="UTC")
+  if (any(!m)) {
+    txt <- x[!m]
+    d <- suppressWarnings(parse_date_time(
+      txt,
+      orders = c("d/m/Y H:M","d/m/Y H:M:S","m/d/Y H:M","m/d/Y H:M:S",
+                 "Y-m-d H:M","Y-m-d H:M:S"),
+      tz = "UTC"
+    ))
+    out[!m] <- d
+  }
+  out
+}
+
+# 4) Leer TODAS las hojas (sin saltar filas), "NULL" y "" → NA, tipos → numéricos
+todo_2223 <- map_dfr(sheets_2223, function(sh){
+  df <- read_excel(archivo_2223, sheet = sh, col_names = TRUE, col_types = "text",
+                   na = c("NULL",""))  # <-- "NULL" y vacíos a NA
+
+  # renombrar 'date' -> 'DATE' y crear LOCATION
+  nms <- names(df); nms[tolower(nms) == "date"] <- "DATE"; names(df) <- nms
+  df$LOCATION <- sh
+
+  # DATE → POSIXct
+  df$DATE <- parse_date_safe(df$DATE)
+
+  # convertir todo (menos LOCATION/DATE) a numérico
+  keep_non_numeric <- c("LOCATION","DATE")
+  cols_num <- setdiff(intersect(names(df), cols_final), keep_non_numeric)
+  df[cols_num] <- lapply(df[cols_num], function(v) suppressWarnings(as.numeric(v)))
+
+  # asegurar columnas del esquema y ordenarlas
+  faltan <- setdiff(cols_final, names(df))
+  for (c in faltan) {
+    if (c == "LOCATION") df[[c]] <- NA_character_
+    else if (c == "DATE") df[[c]] <- as.POSIXct(NA)
+    else df[[c]] <- NA_real_
+  }
+  df <- df[, cols_final]
+
+  # eliminar filas vacías (DATE NA y todo numérico NA)
+  vacia <- is.na(df$DATE) & rowSums(!is.na(df[, setdiff(cols_final, c("LOCATION","DATE")), drop=FALSE])) == 0
+  df[!vacia, ]
+})
+
+# 5) Separar por año y guardar
+datos_2022 <- todo_2223 %>% filter(!is.na(DATE), year(DATE) == 2022) %>% arrange(LOCATION, DATE)
+datos_2023 <- todo_2223 %>% filter(!is.na(DATE), year(DATE) == 2023) %>% arrange(LOCATION, DATE)
+
+write_csv(datos_2022, "2022.csv")
+write_csv(datos_2023, "2023.csv")
+head(datos_2022)
+```
+
+```{r}
+# valores únicos de LOCATION en 2022
+unique_locations_2022 <- datos_2022 %>% distinct(LOCATION) %>% arrange(LOCATION)
+
+# valores únicos de LOCATION en 2023
+unique_locations_2023 <- datos_2023 %>% distinct(LOCATION) %>% arrange(LOCATION)
+
+unique_locations_2024 <- datos_2024 %>% distinct(LOCATION) %>% arrange(LOCATION)
+
+
+unique_locations_2022
+unique_locations_2023
+unique_locations_2024
+
+```
+```{r}
+library(dplyr)
+
+# diccionario de mapeo
+map_loc <- c(
+  "CENTRO"     = "CE",
+  "NORESTE"    = "NE",
+  "NORESTE2"   = "NE2",
+  "NORESTE3"   = "NE3",
+  "NOROESTE"   = "NO",
+  "NOROESTE2"  = "NO2",
+  "NOROESTE3"  = "NO3",
+  "NORTE"      = "NTE",
+  "NORTE2"     = "NTE2",
+  "SUR"        = "SUR",
+  "SURESTE"    = "SE",
+  "SURESTE2"   = "SE2",
+  "SURESTE3"   = "SE3",
+  "SUROESTE"   = "SO",
+  "SUROESTE2"  = "SO2"
+)
+
+# aplicar mapeo en 2022 y 2023
+datos_2022 <- datos_2022 %>%
+  mutate(LOCATION = recode(LOCATION, !!!map_loc))
+
+datos_2023 <- datos_2023 %>%
+  mutate(LOCATION = recode(LOCATION, !!!map_loc))
+
+```
+
+
+```{r}
+# Asegurar que cada dataset tenga su columna YEAR
+datos_2022 <- datos_2022 %>% mutate(YEAR = 2022)
+datos_2023 <- datos_2023 %>% mutate(YEAR = 2023)
+datos_2024 <- datos_2024 %>% mutate(YEAR = 2024)
+datos_2025 <- datos_2025 %>% mutate(YEAR = 2025)
+
+# Unir todos
+datos_all <- bind_rows(datos_2022, datos_2023, datos_2024, datos_2025)
+
+# Contar registros por LOCATION y YEAR
+resumen_registros <- datos_all %>%
+  group_by(LOCATION, YEAR) %>%
+  summarise(total_registros = n(), .groups = "drop") %>%
+  arrange(LOCATION, YEAR)
+
+# Opcional: pasar a formato ancho (tabla comparativa)
+resumen_wide <- resumen_registros %>%
+  tidyr::pivot_wider(
+    names_from = YEAR,
+    values_from = total_registros,
+    values_fill = 0
+  )
+
+resumen_registros   # formato largo
+resumen_wide        # formato comparativo
+```
+# Revisar dias distintos de 2023
+
+```{r}
+# Revisar rango de fechas
+range(datos_2023$DATE, na.rm = TRUE)
+
+# Revisar cuántos días distintos hay
+n_dias <- datos_2023 %>% 
+  mutate(dia = as_date(DATE)) %>% 
+  summarise(total_dias = n_distinct(dia))
+
+print(n_dias)
+
+# Ver qué días faltan
+dias_esperados <- seq.Date(as.Date("2023-01-01"), as.Date("2023-12-31"), by = "day")
+
+dias_presentes <- datos_2023 %>% 
+  mutate(dia = as_date(DATE)) %>% 
+  distinct(dia) %>% 
+  pull(dia)
+
+dias_faltantes <- setdiff(dias_esperados, dias_presentes)
+
+dias_faltantes
+```
+
+# 2023 está incompleto, se usa otro dataset 
+
+```{r}
+# ================== LIMPIEZA BD 2023-2024 (formato por bloques) ==================
+# Requisitos: readxl, dplyr, purrr, readr, lubridate
+library(readxl); library(dplyr); library(purrr); library(readr); library(lubridate)
+
+# ---- 0) Archivo de origen y salida
+archivo_2023_2024 <- "data/BD 2023-2024.xlsx"     # <— ajusta si está en otra ruta
+salida_csv        <- "data/datos_2023_2024.csv"   # nombre entendible pedido
+salida_rds        <- "data/datos_2023_2024.rds"
+
+# ---- 1) Esquema objetivo (orden exacto)
+vars <- c("CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR")
+cols_final <- c("LOCATION","DATE", vars)
+
+# ---- 2) Helpers
+parse_date_flex <- function(x){
+  num <- suppressWarnings(as.numeric(x))
+  out <- rep(as.POSIXct(NA, tz="UTC"), length(x))
+  m <- !is.na(num)
+  if (any(m)) out[m] <- as.POSIXct(num[m]*86400, origin="1899-12-30", tz="UTC")
+  if (any(!m)) {
+    txt <- as.character(x[!m])
+    d <- suppressWarnings(parse_date_time(
+      txt,
+      orders = c("d/m/Y H:M","d/m/Y H:M:S","m/d/Y H:M","m/d/Y H:M:S",
+                 "Y-m-d H:M","Y-m-d H:M:S"),
+      tz = "UTC"
+    ))
+    out[!m] <- d
+  }
+  out
+}
+
+to_num <- function(v){
+  v <- trimws(as.character(v))
+  v[v == "" | tolower(v) == "null"] <- NA
+  suppressWarnings(readr::parse_number(v))
+}
+
+# ---- 3) Procesar UNA hoja con el formato: 
+# Col A = date; Bloques de 15 vars (B:P) por estación; 1 col separadora vacía y se repite.
+procesar_hoja_bloques <- function(archivo, hoja, sep_cols = 1){
+  # Leer 2 filas de encabezado (1=estación, 2=unidades)
+  hdr <- read_excel(archivo, sheet = hoja, col_names = FALSE, n_max = 2)
+  est_row <- as.character(hdr[1, ])  # nombres de estación encima de cada bloque
+
+  # Leer datos reales, saltando esas 2 filas
+  raw <- read_excel(archivo, sheet = hoja, col_names = FALSE, skip = 2)
+
+  # DATE (columna A) — se comparte para todos los bloques
+  DATE <- parse_date_flex(raw[[1]])
+
+  # Recorrer bloques desde la columna 2 en adelante
+  n_cols    <- ncol(raw)
+  block_sz  <- length(vars)   # 15
+  col_idx   <- 2              # empieza en B
+  out_list  <- list()
+
+  while (col_idx + block_sz - 1 <= n_cols) {
+    station <- est_row[[col_idx]]
+    if (is.na(station) || station == "") station <- "UNKNOWN"
+
+    cols_block <- col_idx:(col_idx + block_sz - 1)
+    if (max(cols_block) > n_cols) break
+
+    block_df <- as.data.frame(raw[, cols_block, drop = FALSE], stringsAsFactors = FALSE)
+    names(block_df) <- vars
+    block_df[] <- lapply(block_df, to_num)
+
+    out <- tibble(LOCATION = station, DATE = DATE) %>% bind_cols(block_df)
+    out_list[[length(out_list) + 1]] <- out
+
+    col_idx <- col_idx + block_sz + sep_cols  # saltar separadora y continuar
+  }
+
+  bind_rows(out_list) %>%
+    filter(!is.na(DATE)) %>%                 # quitar filas sin fecha
+    select(all_of(cols_final)) %>%
+    arrange(LOCATION, DATE)
+}
+
+# ---- 4) Procesar TODAS las hojas del archivo y unir
+hojas <- excel_sheets(archivo_2023_2024)
+datos_2023_2024 <- map_dfr(hojas, ~procesar_hoja_bloques(archivo_2023_2024, .x))
+
+# ---- 5) Guardar resultados
+write_csv(datos_2023_2024, salida_csv)
+saveRDS(datos_2023_2024, salida_rds)
+
+# (Opcional) Vistazo rápido
+print(head(datos_2023_2024))
+# str(datos_2023_2024)
+
+```
+
+```{r}
+# diccionario de mapeo
+map_loc <- c(
+  "CENTRO"     = "CE",
+  "NORESTE"    = "NE",
+  "NORESTE2"   = "NE2",
+  "NORESTE 3"   = "NE3",
+  "NOROESTE"   = "NO",
+  "NOROESTE 2"  = "NO2",
+  "NOROESTE 3"  = "NO3",
+  "NORTE"      = "NTE",
+  "NORTE 2"     = "NTE2",
+  "SUR"        = "SUR",
+  "SURESTE"    = "SE",
+  "SURESTE2"   = "SE2",
+  "SURESTE 3"   = "SE3",
+  "SUROESTE"   = "SO",
+  "SUROESTE2"  = "SO2"
+)
+# Filtrar solo 2023
+datos_2023 <- datos_2023_2024 %>%
+  filter(lubridate::year(DATE) == 2023)
+
+datos_2023 <- datos_2023 %>%
+  mutate(LOCATION = recode(LOCATION, !!!map_loc))
+
+# Guardar en disco como 2023.csv
+write_csv(datos_2023, "data/2023.csv")
+
+```
+
+## Conteo registro final
+
+```{r}
+# Asegurar que cada dataset tenga su columna YEAR
+datos_2022 <- datos_2022 %>% mutate(YEAR = 2022)
+datos_2023 <- datos_2023 %>% mutate(YEAR = 2023)
+datos_2024 <- datos_2024 %>% mutate(YEAR = 2024)
+datos_2025 <- datos_2025 %>% mutate(YEAR = 2025)
+
+# Unir todos
+datos_all <- bind_rows(datos_2022, datos_2023, datos_2024, datos_2025)
+
+# Contar registros por LOCATION y YEAR
+resumen_registros <- datos_all %>%
+  group_by(LOCATION, YEAR) %>%
+  summarise(total_registros = n(), .groups = "drop") %>%
+  arrange(LOCATION, YEAR)
+
+# Opcional: pasar a formato ancho (tabla comparativa)
+resumen_wide <- resumen_registros %>%
+  tidyr::pivot_wider(
+    names_from = YEAR,
+    values_from = total_registros,
+    values_fill = 0
+  )
+
+resumen_registros   # formato largo
+resumen_wide        # formato comparativo
+```
+
+## Conteo de nulos
+
+```{r}
+resumen_nulos <- datos_all %>%
+  group_by(LOCATION, YEAR) %>%
+  summarise(
+    total_nulos = sum(is.na(CO) | is.na(NO) | is.na(NO2) | is.na(NOX) |
+                      is.na(O3) | is.na(PM10) | is.na(`PM2.5`) | is.na(SO2)),
+    .groups = "drop"
+  ) %>%
+  arrange(LOCATION, YEAR)
+
+# Opcional: pasar a formato ancho (tabla comparativa)
+resumen_nulos_wide <- resumen_nulos %>%
+  tidyr::pivot_wider(
+    names_from = YEAR,
+    values_from = total_nulos,
+    values_fill = 0
+  )
+
+resumen_nulos       # formato largo
+head(resumen_nulos_wide, 15)  # formato comparativo
+```
+
+```{r}
+head(datos_2023, 50)
+
+```
+
+# CSV FINAL
+
+Luego de toda la limpieza, felizmente tenemos los datos en un solo csv
+
+```{r}
+write_csv(datos_all, "data/data2022-2025.csv")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
