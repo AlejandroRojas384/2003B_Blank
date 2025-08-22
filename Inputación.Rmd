@@ -1,0 +1,268 @@
+---
+title: "Imputación Final"
+author: "Jose Alejandro Rojas Castro"
+date: "2025-08-21"
+output: html_document
+---
+
+# Data Total
+
+pipeline de imputación
+
+```{r}
+path <- "data/data2022-2025.csv"
+df   <- read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)  # respeta "PM2.5"
+```
+
+# Filtrar por CE, NTE2, NE
+
+```{r}
+df <- subset(df, LOCATION %in% c("CE","NE","NTE2"))
+
+df
+
+```
+
+## Valores negativos a nulos
+
+```{r}
+cols <- intersect(c("CO","NO","NO2","NOX","O3","PM10","PM2.5",
+                    "PRS","RAINF","RH","SO2","SR","TOUT",
+                    "WSR","WDR","YEAR"), names(df))
+
+df[cols] <- lapply(df[cols], function(v) {
+  v <- suppressWarnings(as.numeric(v))
+  v[v < 0] <- NA
+  v
+})
+
+```
+
+## Conteo de nulos
+
+```{r}
+na_pct_col    <- round(colMeans(is.na(df)) * 100, 2)
+na_pct_global <- round(100 * sum(is.na(df)) / (nrow(df) * ncol(df)), 2)
+
+na_pct_col
+na_pct_global
+
+colSums(is.na(df))
+
+```
+
+
+```{r}
+summary(df)
+```
+
+```{r}
+
+# Completa NAs largos (>60 h) usando las otras estaciones como donantes.
+# 1) Primero interpola huecos <7 h (lineal).
+# 2) Para NAs restantes en rachas >60 h, predice con regresión usando las otras dos estaciones.
+# Crea columnas *_filled (no modifica las originales).
+
+library(zoo)
+
+df$DATE <- as.POSIXct(df$DATE, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC")
+df <- df[order(df$LOCATION, df$DATE), ]
+
+stations <- c("CE","NE","NTE2")
+vars <- intersect(c("CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR"), names(df))
+for (v in vars) df[[v]] <- suppressWarnings(as.numeric(df[[v]]))
+
+udates <- sort(unique(df$DATE))  # rejilla horaria común
+
+for (v in vars) {
+  out_col <- paste0(v, "_filled")
+  df[[out_col]] <- NA_real_
+
+  # Serie por estación alineada a 'udates'
+  series <- lapply(stations, function(s){
+    vals <- rep(NA_real_, length(udates))
+    idxs <- which(df$LOCATION == s)
+    pos  <- match(df$DATE[idxs], udates)
+    vals[pos] <- df[[v]][idxs]
+    vals
+  })
+  names(series) <- stations
+
+  # Paso 1: interpolación de huecos < 7 h
+  series <- lapply(series, function(x) na.approx(x, maxgap = 7, na.rm = FALSE))
+
+  # Paso 2: rellenar rachas > 60 h con regresión usando donantes
+  for (s in stations) {
+    x  <- series[[s]]
+    others <- setdiff(stations, s)
+    d1 <- series[[others[1]]]
+    d2 <- series[[others[2]]]
+
+    r <- rle(is.na(x)); ends <- cumsum(r$lengths); starts <- ends - r$lengths + 1
+    mask <- r$values & r$lengths > 60
+    if (any(mask)) {
+      long_idx <- unlist(mapply(seq, starts[mask], ends[mask]))
+      # Modelos: y ~ d1 + d2 ; y ~ d1 ; y ~ d2
+      train_df12 <- data.frame(y = x, d1 = d1, d2 = d2)
+      fit12 <- tryCatch(lm(y ~ d1 + d2, data = train_df12, na.action = na.omit), error = function(e) NULL)
+
+      train_df1  <- data.frame(y = x, d1 = d1)
+      fit1  <- tryCatch(lm(y ~ d1, data = train_df1, na.action = na.omit), error = function(e) NULL)
+
+      train_df2  <- data.frame(y = x, d2 = d2)
+      fit2  <- tryCatch(lm(y ~ d2, data = train_df2, na.action = na.omit), error = function(e) NULL)
+
+      # Predicciones según disponibilidad de donantes en cada instante
+      pred <- rep(NA_real_, length(long_idx))
+      has12 <- !is.na(d1[long_idx]) & !is.na(d2[long_idx]) & !is.null(fit12)
+      if (any(has12)) {
+        pred[has12] <- predict(fit12, newdata = data.frame(d1 = d1[long_idx][has12], d2 = d2[long_idx][has12]))
+      }
+      has1 <- is.na(pred) & !is.na(d1[long_idx]) & !is.null(fit1)
+      if (any(has1)) {
+        pred[has1] <- predict(fit1, newdata = data.frame(d1 = d1[long_idx][has1]))
+      }
+      has2 <- is.na(pred) & !is.na(d2[long_idx]) & !is.null(fit2)
+      if (any(has2)) {
+        pred[has2] <- predict(fit2, newdata = data.frame(d2 = d2[long_idx][has2]))
+      }
+
+      # Asigna (y evita negativos por coherencia física)
+      x[long_idx[!is.na(pred)]] <- pmax(pred[!is.na(pred)], 0)
+    }
+
+    # Vuelca al data frame original para la estación s
+    idxs <- which(df$LOCATION == s)
+    pos  <- match(df$DATE[idxs], udates)
+    df[[out_col]][idxs] <- x[pos]
+  }
+}
+
+# Resultado: columnas *_filled (ej. CO_filled, NO_filled, ...),
+# con huecos <7h por interpolación y huecos >60h usando estaciones vecinas.
+
+```
+
+```{r}
+colSums(is.na(df))
+```
+
+```{r}
+# Imputa los NAs restantes usando “climatología”:
+# para cada NA (día y hora), toma la MEDIANA de los 3 meses anteriores
+# en AÑOS ANTERIORES, misma estación, mismo día-del-mes y misma hora.
+# Si no hay datos, relaja a: (meses previos + misma hora) -> (todas las horas del mismo año previo) -> mediana de la estación.
+# Crea columnas *_final s
+
+df$DATE <- as.POSIXct(df$DATE, format = "%Y-%m-%dT%H:%M:%OSZ", tz = "UTC")
+df <- df[order(df$LOCATION, df$DATE), ]
+df$Year  <- as.integer(format(df$DATE, "%Y"))
+df$Month <- as.integer(format(df$DATE, "%m"))
+df$Day   <- as.integer(format(df$DATE, "%d"))
+df$Hour  <- as.integer(format(df$DATE, "%H"))
+
+vars <- intersect(c("CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR"), names(df))
+for (v in vars) df[[v]] <- suppressWarnings(as.numeric(df[[v]]))
+
+get_base <- function(v) {
+  vf <- paste0(v, "_filled")
+  vi <- paste0(v, "_imp")
+  if (vf %in% names(df)) df[[vf]]
+  else if (vi %in% names(df)) df[[vi]]
+  else df[[v]]
+}
+
+prev3 <- function(m) ((m - 1 - 1:3) %% 12) + 1  # 3 meses anteriores con wrap
+
+fill_clim_station <- function(d, v) {
+  x <- get_base(v)[d$idx]
+  na_idx <- which(is.na(x))
+  if (!length(na_idx)) return(x)
+
+  for (i in na_idx) {
+    y0 <- d$Year[i]; m0 <- d$Month[i]; d0 <- d$Day[i]; h0 <- d$Hour[i]
+    mset <- prev3(m0)
+
+    donors <- d[[v]][ d$Year < y0 & d$Month %in% mset & d$Day == d0 & d$Hour == h0 ]
+    val <- suppressWarnings(median(donors, na.rm = TRUE))
+
+    if (is.na(val)) {
+      donors <- d[[v]][ d$Year < y0 & d$Month %in% mset & d$Hour == h0 ]
+      val <- suppressWarnings(median(donors, na.rm = TRUE))
+    }
+    if (is.na(val)) {
+      donors <- d[[v]][ d$Year < y0 & d$Hour == h0 ]
+      val <- suppressWarnings(median(donors, na.rm = TRUE))
+    }
+    if (is.na(val)) {
+      val <- suppressWarnings(median(d[[v]], na.rm = TRUE))
+    }
+
+    # coherencia física básica
+    if (!is.na(val)) {
+      if (v %in% c("RH"))  val <- min(max(val, 0), 100)
+      if (v %in% c("WDR")) val <- (val %% 360)
+      if (v %in% c("PM10")) val <- if (val >= 900) NA_real_ else max(val, 0)
+      if (v %in% c("CO","NO","NO2","NOX","O3","PM2.5","SO2","PRS","RAINF","SR","TOUT","WSR")) val <- max(val, 0)
+      x[i] <- val
+    }
+  }
+  x
+}
+
+df$idx <- seq_len(nrow(df))
+out_list <- lapply(split(df, df$LOCATION), function(d){
+  d <- d[order(d$DATE), ]
+  d$idx <- d$idx
+  for (v in vars) {
+    d[[paste0(v, "_final")]] <- fill_clim_station(d, v)
+  }
+  d
+})
+
+df_final <- do.call(rbind, out_list)
+df_final <- df_final[order(df_final$idx), ]
+# Resultado: columnas *_final con imputación por climatología de 3 meses previos en años anteriores.
+
+```
+
+
+```{r}
+colSums(is.na(df_final))
+
+```
+
+
+```{r}
+summary(df_final)
+```
+
+## Guardado final
+
+```{r}
+base <- if (exists("df_final")) df_final else df
+
+final_vars <- c("CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR")
+time_cols  <- intersect(c("Year","Month","Day","Hour","YEAR","MONTH","DAY","HOUR"), names(base))
+keep_cols  <- c(time_cols, paste0(final_vars, "_final"))
+keep_cols  <- intersect(keep_cols, names(base))
+
+out <- base[, keep_cols, drop = FALSE]
+names(out) <- sub("_(final|finnal)$", "", names(out))  # quita _final (o _finnal si estaba mal escrito)
+
+```
+
+```{r}
+summary(out)
+```
+
+```{r}
+colSums(is.na(out))
+
+```
+
+```{r}
+write.csv(out, "DATA_final.csv", row.names = FALSE)
+
+```
+

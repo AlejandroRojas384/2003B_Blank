@@ -1,0 +1,208 @@
+---
+title: 'Análisis Base de Datos de 2022 a 2025'
+author: "Jose Alejandro Rojas Castro"
+date: "2025-08-21"
+output: html_document
+---
+
+# Carga dataframe de 2022 a 2025
+
+Este notebook es exploratorio y puede que no funcionen algunas cosas
+
+```{r}
+# === Perfil de calidad y descripción del dataset data2022-2025.csv (base R) ===
+
+# 1) Cargar
+path <- "data2022-2025.csv"
+df   <- read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)  # respeta "PM2.5"
+```
+
+## Proceso de analisis de los datos del df
+
+```{r}
+
+# 2) Tipos esperados y descripciones (ajusta si necesitas)
+desc_tbl <- data.frame(
+  Variable = c("LOCATION","DATE","CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR","YEAR"),
+  Descripcion = c(
+    "Estación / ubicación de monitoreo",
+    "Fecha del registro (día)",
+    "Monóxido de carbono",
+    "Óxido nítrico",
+    "Dióxido de nitrógeno",
+    "Óxidos de nitrógeno totales",
+    "Ozono",
+    "Partículas ≤10 µm",
+    "Partículas ≤2.5 µm",
+    "Presión atmosférica",
+    "Precipitación",
+    "Humedad relativa",
+    "Dióxido de azufre",
+    "Radiación solar",
+    "Temperatura del aire",
+    "Velocidad del viento",
+    "Dirección del viento",
+    "Año calendario"
+  ),
+  Tipo_esperado = c("categórico","fecha", rep("numérico", 16)),
+  stringsAsFactors = FALSE
+)
+
+# 3) Conversión de tipos mínima
+num_cols <- c("CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR","YEAR")
+num_cols <- intersect(num_cols, names(df))
+for (cn in num_cols) df[[cn]] <- suppressWarnings(as.numeric(df[[cn]]))
+if ("DATE" %in% names(df)) {
+  d1 <- suppressWarnings(as.Date(df$DATE))
+  if (all(is.na(d1))) d1 <- suppressWarnings(as.Date(df$DATE, format = "%Y/%m/%d"))
+  if (all(is.na(d1))) d1 <- suppressWarnings(as.Date(substr(df$DATE,1,10)))
+  df$DATE <- d1
+}
+if ("LOCATION" %in% names(df)) df$LOCATION <- as.factor(df$LOCATION)
+
+# 4) Dimensiones
+cat("=== Dimensión del dataset ===\n")
+cat("Filas:", nrow(df), " | Columnas:", ncol(df), "\n\n")
+
+# 5) Descripción automática por variable: tipo detectado, posibles valores/rangos y nulos
+tipo_detectado <- sapply(df, function(v){
+  if (inherits(v, "Date")) "fecha"
+  else if (is.numeric(v)) "numérico"
+  else "categórico"
+})
+
+posibles <- sapply(names(df), function(nm){
+  v <- df[[nm]]
+  if (inherits(v,"Date")) {
+    rn <- range(v, na.rm = TRUE)
+    paste0("[", rn[1], ", ", rn[2], "]")
+  } else if (is.numeric(v)) {
+    rn <- range(v, na.rm = TRUE)
+    paste0("[", signif(rn[1],6), ", ", signif(rn[2],6), "]")
+  } else {
+    lv <- sort(unique(trimws(as.character(v))))
+    ejemplo <- if (length(lv) > 0) {
+      paste0(" (ej.: ", paste(head(lv,5), collapse=", "),
+             if (length(lv) > 5) ", ...", ")")
+    } else ""
+    paste0("niveles=", length(lv), ejemplo)
+  }
+})
+
+na_count <- sapply(df, function(v) sum(is.na(v) | (is.character(v) & trimws(v)=="")))
+na_pct   <- round(100 * na_count / nrow(df), 2)
+
+dicc <- merge(
+  desc_tbl,
+  data.frame(
+    Variable       = names(df),
+    Tipo_detectado = as.vector(tipo_detectado),
+    Posibles       = as.vector(posibles),
+    NA_count       = as.vector(na_count),
+    NA_pct         = as.vector(na_pct),
+    check.names    = FALSE
+  ),
+  by   = "Variable",
+  all.y = TRUE,
+  sort = FALSE
+)
+
+cat("=== Descripción de variables ===\n")
+print(dicc[match(names(df), dicc$Variable), ], row.names = FALSE)
+cat("\n")
+
+# 6) Verificación de calidad
+# 6.1 Resumen de valores numéricos
+num_present <- names(df)[sapply(df, is.numeric)]
+if (length(num_present) > 0) {
+  resumen_num <- t(sapply(df[num_present], function(x){
+    x <- x[!is.na(x)]
+    if (!length(x)) return(c(min=NA,q1=NA,median=NA,mean=NA,q3=NA,max=NA))
+    c(min=min(x), q1=quantile(x,0.25), median=median(x), mean=mean(x), q3=quantile(x,0.75), max=max(x))
+  }))
+  cat("=== Resumen estadístico de variables numéricas ===\n")
+  print(round(resumen_num, 3))
+  cat("\n")
+}
+
+# 6.2 Reglas simples de validez (valores erróneos/espurios)
+rule_bad <- list(
+  RH   = function(v) v < 0 | v > 100,
+  WDR  = function(v) v < 0 | v > 360,
+  YEAR = function(v) !(v %in% 2022:2025),
+  RAINF= function(v) v < 0,
+  SR   = function(v) v < 0,
+  WSR  = function(v) v < 0,
+  PRS  = function(v) v < 800 | v > 1100,      # hPa aprox.
+  PM10 = function(v) v < 0,
+  "PM2.5" = function(v) v < 0,
+  O3   = function(v) v < 0,
+  NO   = function(v) v < 0,
+  NO2  = function(v) v < 0,
+  NOX  = function(v) v < 0,
+  CO   = function(v) v < 0,
+  SO2  = function(v) v < 0
+)
+
+valid_tbl <- do.call(rbind, lapply(names(rule_bad), function(nm){
+  if (!nm %in% names(df)) return(NULL)
+  v <- df[[nm]]; bad <- rule_bad[[nm]](v)
+  n_obs <- sum(!is.na(v))
+  data.frame(
+    Variable    = nm,
+    n_err       = sum(bad, na.rm=TRUE),
+    pct_err_obs = ifelse(n_obs>0, round(100*sum(bad,na.rm=TRUE)/n_obs,2), NA),
+    check.names = FALSE
+  )
+}))
+cat("=== Reglas de validez (conteo de valores erróneos) ===\n")
+if (!is.null(valid_tbl)) print(valid_tbl, row.names = FALSE) else cat("Sin variables para validar.\n")
+cat("\n")
+
+# 6.3 Outliers por regla IQR
+iqr_tbl <- do.call(rbind, lapply(num_present, function(nm){
+  v <- df[[nm]]
+  v_ok <- v[!is.na(v)]
+  if (length(v_ok) < 4) return(NULL)
+  q1 <- quantile(v_ok, .25); q3 <- quantile(v_ok, .75); iqr <- q3 - q1
+  low <- q1 - 1.5*iqr; up <- q3 + 1.5*iqr
+  flag <- (v < low | v > up)
+  data.frame(Variable=nm, n_out=sum(flag, na.rm=TRUE),
+             lower=round(low,3), upper=round(up,3),
+             check.names = FALSE)
+}))
+cat("=== Outliers por regla IQR (conteo y umbrales) ===\n")
+if (!is.null(iqr_tbl)) print(iqr_tbl, row.names = FALSE) else cat("Sin suficientes datos numéricos.\n")
+
+```
+
+```{r}
+colSums(is.na(df))
+
+```
+
+```{r}
+# Valores < 0 por columna (solo numéricas)
+neg_por_col <- sapply(df[sapply(df, is.numeric)], function(x) sum(x < 0, na.rm = TRUE))
+
+# Para PM10: < 0 y >= 900
+pm10_menor_cero <- sum(df$PM10 < 0, na.rm = TRUE)
+pm10_ge_900     <- sum(df$PM10 >= 900, na.rm = TRUE)
+
+pm10_ge_900
+pm10_menor_cero
+neg_por_col
+```
+
+```{r}
+# Filtra por CE, NE, NTE2 y conserva LOCATION, DATE, YEAR + contaminantes
+pollutants <- c("CO","NO","NO2","NOX","O3","PM10","PM2.5","SO2")
+keep_cols  <- intersect(c("LOCATION","DATE","YEAR", pollutants), names(df))
+df_out <- subset(df, LOCATION %in% c("CE","NE","NTE2"))[, keep_cols, drop = FALSE]
+write.csv(df_out, "DATA.csv", row.names = FALSE)
+```
+
+```{r}
+head(df_out)
+```
+

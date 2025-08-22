@@ -25,7 +25,7 @@ cols_final <- c("LOCATION","DATE","CO","NO","NO2","NOX","O3","PM10","PM2.5",
                 "PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR")
 
 # nombres que pueden venir "limpios" tras clean_names()
-# mapeo -> nombre final (tal como lo quieres)
+# mapeo -> nombre final
 map_names <- c(
   "date"   = "DATE",
   "co"     = "CO",
@@ -361,7 +361,6 @@ resumen_registros <- datos_all %>%
   summarise(total_registros = n(), .groups = "drop") %>%
   arrange(LOCATION, YEAR)
 
-# Opcional: pasar a formato ancho (tabla comparativa)
 resumen_wide <- resumen_registros %>%
   tidyr::pivot_wider(
     names_from = YEAR,
@@ -406,11 +405,11 @@ dias_faltantes
 library(readxl); library(dplyr); library(purrr); library(readr); library(lubridate)
 
 # ---- 0) Archivo de origen y salida
-archivo_2023_2024 <- "data/BD 2023-2024.xlsx"     # <— ajusta si está en otra ruta
-salida_csv        <- "data/datos_2023_2024.csv"   # nombre entendible pedido
+archivo_2023_2024 <- "data/BD 2023-2024.xlsx"     
+salida_csv        <- "data/datos_2023_2024.csv"   
 salida_rds        <- "data/datos_2023_2024.rds"
 
-# ---- 1) Esquema objetivo (orden exacto)
+# ---- 1) Esquema objetivo
 vars <- c("CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR")
 cols_final <- c("LOCATION","DATE", vars)
 
@@ -489,7 +488,6 @@ datos_2023_2024 <- map_dfr(hojas, ~procesar_hoja_bloques(archivo_2023_2024, .x))
 write_csv(datos_2023_2024, salida_csv)
 saveRDS(datos_2023_2024, salida_rds)
 
-# (Opcional) Vistazo rápido
 print(head(datos_2023_2024))
 # str(datos_2023_2024)
 
@@ -544,7 +542,6 @@ resumen_registros <- datos_all %>%
   summarise(total_registros = n(), .groups = "drop") %>%
   arrange(LOCATION, YEAR)
 
-# Opcional: pasar a formato ancho (tabla comparativa)
 resumen_wide <- resumen_registros %>%
   tidyr::pivot_wider(
     names_from = YEAR,
@@ -568,7 +565,6 @@ resumen_nulos <- datos_all %>%
   ) %>%
   arrange(LOCATION, YEAR)
 
-# Opcional: pasar a formato ancho (tabla comparativa)
 resumen_nulos_wide <- resumen_nulos %>%
   tidyr::pivot_wider(
     names_from = YEAR,
