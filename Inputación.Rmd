@@ -51,7 +51,6 @@ colSums(is.na(df))
 
 ```
 
-
 ```{r}
 summary(df)
 ```
@@ -226,12 +225,10 @@ df_final <- df_final[order(df_final$idx), ]
 
 ```
 
-
 ```{r}
 colSums(is.na(df_final))
 
 ```
-
 
 ```{r}
 summary(df_final)
@@ -243,7 +240,7 @@ summary(df_final)
 base <- if (exists("df_final")) df_final else df
 
 final_vars <- c("CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR")
-time_cols  <- intersect(c("Year","Month","Day","Hour","YEAR","MONTH","DAY","HOUR"), names(base))
+time_cols  <- intersect(c("Year","Month","Day","Hour","YEAR","MONTH","DAY","HOUR","LOCATION", "DATE"), names(base))
 keep_cols  <- c(time_cols, paste0(final_vars, "_final"))
 keep_cols  <- intersect(keep_cols, names(base))
 
@@ -265,4 +262,3 @@ colSums(is.na(out))
 write.csv(out, "DATA_final.csv", row.names = FALSE)
 
 ```
-

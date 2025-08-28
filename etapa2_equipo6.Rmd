@@ -1,0 +1,187 @@
+---
+title: "Etapa 2 Comprensión de datos"
+author: "Valeria Arciga"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+\#
+
+## Carga de datos
+
+```{r}
+datos <- read.csv("DATA_final.csv")
+```
+
+```{r}
+head(datos)
+```
+
+## Filtrado de información relevante
+
+```{r}
+contaminantes <- datos[, c("O3", "PM10", "PM2.5")]
+```
+
+```{r}
+datos <- datos[, c("LOCATION", "DATE", "O3", "PM10", "PM2.5", "PRS", "RAINF", "RH", "SR", "TOUT", "WSR", "WDR", "YEAR")]
+```
+
+```{r}
+corr <- datos[,c("O3","PM10","PM2.5", "PRS", "RAINF", "RH", "SR", "TOUT", "WSR", "WDR")]
+```
+
+## Dimensiones del dataset
+
+```{r}
+dim(datos)
+nrow(datos)       
+ncol(datos)  
+```
+
+```{r}
+head(datos)
+```
+
+Se tienen las 20 columnas, pero se hará análisis de las que son relevantes para la Situación Problema
+
+## Descripción de variables
+
+```{r}
+str(datos)
+```
+
+```{r}
+summary(datos)
+```
+
+Valores nulos
+
+```{r}
+colSums(is.na(datos))
+```
+
+## Medidas estadísticas
+
+### Variables cuantitativas
+
+```{r}
+vars_num <- datos[, sapply(datos, is.numeric)]
+
+# Medidas de tendencia central
+apply(vars_num, 2, mean)        # promedio
+apply(vars_num, 2, median)      # mediana
+apply(vars_num, 2, function(x) { 
+  ux <- unique(x); ux[which.max(tabulate(match(x, ux)))] }) 
+```
+
+### Medidas de dispersión
+
+```{r}
+apply(vars_num, 2, range)       # min y max
+```
+
+```{r}
+apply(vars_num, 2, function(x) diff(range(x)))  # rango
+```
+
+```{r}
+apply(vars_num, 2, var)         # varianza
+```
+
+```{r}
+apply(vars_num, 2, sd)
+```
+
+### Variables cualitativas
+
+```{r}
+vars_cat <- datos[, sapply(datos, is.factor)]
+vars_cat
+```
+
+```{r}
+lapply(vars_cat, table)
+```
+
+## Medidas de posición no central
+
+```{r}
+apply(vars_num, 2, quantile)  
+```
+
+Detección de outliers
+
+```{r}
+outliers <- apply(vars_num, 2, function(x) {
+  boxplot.stats(x)$out
+})
+outliers
+```
+
+## Visualización cuantitativas
+
+```{r}
+par(mfrow=c(1,2))
+for (i in 1:ncol(vars_num)) {
+  hist(vars_num[,i], main=names(vars_num)[i], col="lightblue")
+}
+
+# Boxplots
+boxplot(vars_num, main="Boxplots de variables numéricas", col="orange")
+```
+
+## Distribución datos cualitativos
+
+```{r}
+par(mfrow=c(1,2))
+barplot(table(datos$Species), col="skyblue", main="Diagrama de barras")
+pie(table(datos$Species), col=rainbow(length(unique(datos$Species))), main="Diagrama de pastel")
+```
+
+## Análisis de correlaciones
+
+```{r}
+install.packages("corrplot")
+```
+
+```{r}
+cor_matrix <- cor(corr)  # ignora NA
+print(cor_matrix)
+```
+
+```{r}
+library(corrplot)
+
+cor_matrix <- cor(contaminantes)
+corrplot(cor_matrix, method="color", addCoef.col="black",
+         tl.cex=0.8, number.cex=0.7, main="Mapa de calor de correlaciones")
+```
+
+```{r}
+cor_matrix <- cor(corr)
+corrplot(cor_matrix, method="color", addCoef.col="black",
+         tl.cex=0.8, number.cex=0.7, main="Mapa de calor de correlaciones")
+```
+
+```{r}
+install.packages("reshape2")
+install.packages("ggplot2")
+```
+
+```{r}
+vars <- c("O3", "PM10", "PM2.5")
+df_long <- reshape2::melt(datos[, vars])
+
+ggplot(df_long, aes(x = variable, y = value)) +
+  geom_boxplot(fill = "skyblue") +
+  labs(title = "Boxplots de contaminantes")
+```
+
+```{r}
+vars_num <- corr[, sapply(corr, is.numeric)]
+
+# Boxplots juntos
+boxplot(vars_num, main = "Boxplots de variables numéricas",
+        col = "orange", las = 2)  # las=2 para girar etiquetas
+```
