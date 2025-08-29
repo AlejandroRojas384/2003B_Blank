@@ -43,7 +43,7 @@ ncol(datos)
 head(datos)
 ```
 
-Se tienen las 20 columnas, pero se hará análisis de las que son relevantes para la Situación Problema
+Se tienen las 13 columnas, pero se hará análisis de las que son relevantes para la Situación Problema
 
 ## Descripción de variables
 
@@ -66,7 +66,7 @@ colSums(is.na(datos))
 ### Variables cuantitativas
 
 ```{r}
-vars_num <- datos[, sapply(datos, is.numeric)]
+vars_num <- corr[, sapply(corr, is.numeric)]
 
 # Medidas de tendencia central
 apply(vars_num, 2, mean)        # promedio
@@ -113,6 +113,22 @@ apply(vars_num, 2, quantile)
 ## Visualización cuantitativas
 
 ```{r}
+par(mfrow=c(2,5))
+for (i in 1:ncol(vars_num)) {
+  hist(vars_num[,i], 
+       main = paste("Histograma de", names(vars_num)[i]), 
+       col="palevioletred",
+       xlab = "Valores",          # Etiqueta eje X
+       ylab = "Frecuencia") 
+  grid(nx = NULL, ny = NULL, 
+       col = "lightgray", 
+       lty = "dotted",
+       lwd = par("lwd"))
+  abline(h = NULL, v = NULL, col = "gray50", lty = 3)
+}
+```
+
+```{r}
 par(mfrow=c(1,1))
 for (i in 1:ncol(vars_num)) {
   hist(vars_num[,i], 
@@ -130,7 +146,7 @@ for (i in 1:ncol(vars_num)) {
 
 ```{r}
 # Boxplots
-boxplot(vars_num, main="Boxplots de variables seleccionadas", col="palevioletred", las = 2, cex.axis = 0.8, xlab = "", ylab = "Valores")
+boxplot(vars_num, main="Boxplots de variables seleccionadas", col="palevioletred", las = 2, cex.axis = 0.8, xlab = "Variables", ylab = "Valores")
 grid(nx = NULL, ny = NULL, 
    col = "lightgray", 
    lty = "dotted",
@@ -163,7 +179,7 @@ for (i in 1:ncol(vars_num)) {
         horizontal = TRUE,              # Boxplot horizontal
         las = 1,
         xlab = "Valores",
-        ylab = "Variable")
+        ylab = " ")
     grid()}
 ```
 
