@@ -110,25 +110,61 @@ lapply(vars_cat, table)
 apply(vars_num, 2, quantile)  
 ```
 
-Detección de outliers
-
-```{r}
-outliers <- apply(vars_num, 2, function(x) {
-  boxplot.stats(x)$out
-})
-outliers
-```
-
 ## Visualización cuantitativas
 
 ```{r}
-par(mfrow=c(1,2))
+par(mfrow=c(1,1))
 for (i in 1:ncol(vars_num)) {
-  hist(vars_num[,i], main=names(vars_num)[i], col="lightblue")
+  hist(vars_num[,i], 
+       main = paste("Histograma de", names(vars_num)[i]), 
+       col="palevioletred",
+       xlab = "Valores",          # Etiqueta eje X
+       ylab = "Frecuencia") 
+  grid(nx = NULL, ny = NULL, 
+       col = "lightgray", 
+       lty = "dotted",
+       lwd = par("lwd"))
+  abline(h = NULL, v = NULL, col = "gray50", lty = 3)
 }
+```
 
+```{r}
 # Boxplots
-boxplot(vars_num, main="Boxplots de variables numéricas", col="orange")
+boxplot(vars_num, main="Boxplots de variables seleccionadas", col="palevioletred", las = 2, cex.axis = 0.8, xlab = "", ylab = "Valores")
+grid(nx = NULL, ny = NULL, 
+   col = "lightgray", 
+   lty = "dotted",
+   lwd = par("lwd"))
+```
+
+```{r}
+par(mflow=c(1,1))
+
+for (i in 1:ncol(vars_num)) {
+    boxplot(vars_num[,i], 
+        main = paste("Boxplots de", names(vars_num)[i]),
+        col="orange",
+        xlab = "Variables",
+        ylab = "Valores")
+    grid(nx = NULL, ny = NULL, 
+     col = "lightgray", 
+     lty = "dotted",
+     lwd = par("lwd"))}
+```
+
+```{r}
+par(mflow=c(1,1))
+
+for (i in 1:ncol(vars_num)) {
+    boxplot(vars_num[,i], 
+        main = paste("Boxplot de", names(vars_num)[i]), 
+        col = "lightblue",
+        border = "navy",
+        horizontal = TRUE,              # Boxplot horizontal
+        las = 1,
+        xlab = "Valores",
+        ylab = "Variable")
+    grid()}
 ```
 
 ## Distribución datos cualitativos
@@ -162,6 +198,43 @@ corrplot(cor_matrix, method="color", addCoef.col="black",
 cor_matrix <- cor(corr)
 corrplot(cor_matrix, method="color", addCoef.col="black",
          tl.cex=0.8, number.cex=0.7, main="Mapa de calor de correlaciones")
+```
+
+```{r}
+cor_matrix <- cor(corr)
+corrplot(cor_matrix, 
+         method = "color", 
+         type = "upper",
+         addCoef.col = "black",
+         number.cex = 0.7,
+         tl.cex = 0.8,
+         tl.col = "black",
+         tl.srt = 45,
+         col = colorRampPalette(c("#000066", "white", "#A23B72"))(100),
+         mar = c(0, 0, 2, 0),
+         main = "Mapa de de Correlaciones",
+         diag = FALSE)
+```
+
+```{r}
+par(mar = c(2, 2, 4, 2))
+
+corrplot(cor_matrix,
+         method = "color",
+         type = "full",
+         order = "hclust",  # Ordena por clustering
+         addCoef.col = "black",
+         number.cex = 0.6,
+         number.digits = 2,
+         tl.cex = 0.8,
+         tl.col = "black",
+         tl.srt = 45,
+         col = colorRampPalette(c("#000066", "white", "#A23B72"))(200),
+         cl.cex = 0.8,
+         mar = c(0, 0, 3, 0),
+         main = "Correlación de variables\n",
+         addgrid.col = "gray90",
+         bg = "white")
 ```
 
 ```{r}
