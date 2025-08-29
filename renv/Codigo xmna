@@ -1,0 +1,43 @@
+# Variables de interés
+vars <- c("O3", "PM10", "PM2.5","PRS", "RAINF", "RH", "SR", "TOUT", "WSR", "WDR")
+datos_sel <- datos2022_2025[, vars]
+
+# Medidas de tendencia central y dispersión
+library(modeest)
+for (v in vars) {
+    cat("\nVariable:", v, "\n")
+    x <- datos_sel[[v]]
+    x <- x[!is.na(x)]
+    cat("Promedio:", mean(x), "\n")
+    cat("Mediana:", median(x), "\n")
+    cat("Moda:", mfv(x), "\n")
+    cat("Rango:", range(x), "\n")
+    cat("Varianza:", var(x), "\n")
+    cat("Desviación estándar:", sd(x), "\n")
+    cat("Cuartiles:\n")
+    print(quantile(x, probs = c(0.25, 0.5, 0.75)))
+    cat("Percentiles (10, 25, 50, 75, 90):\n")
+    print(quantile(x, probs = c(0.10, 0.25, 0.5, 0.75, 0.90)))
+}
+
+# Outliers con boxplots
+par(mfrow = c(3, 3))
+for (v in vars) {
+    boxplot(datos_sel[[v]], main = paste("Boxplot de", v), col = "lightblue")
+}
+
+# Distribución de los datos: histogramas y asimetría
+library(e1071)
+par(mfrow = c(3, 3))
+for (v in vars) {
+    hist(datos_sel[[v]], main = paste("Histograma de", v), col = "lightgreen", breaks = 20)
+    skew <- skewness(datos_sel[[v]], na.rm = TRUE)
+    cat("\nAsimetría de", v, ":", skew, "\n")
+}
+
+# Correlación: matriz y mapa de calor
+library(corrplot)
+matriz_cor <- cor(datos_sel, use = "pairwise.complete.obs")
+cat("\nMatriz de correlación:\n")
+print(matriz_cor)
+corrplot(matriz_cor, method = "color", type = "upper", tl.col = "black", addCoef.col = "black")
