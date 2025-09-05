@@ -13,7 +13,7 @@ Este notebook es exploratorio y puede que no funcionen algunas cosas
 # === Perfil de calidad y descripción del dataset data2022-2025.csv (base R) ===
 
 # 1) Cargar
-path <- "data2022-2025.csv"
+path <- "data/data2022-2025.csv"
 df   <- read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)  # respeta "PM2.5"
 ```
 
@@ -205,4 +205,3 @@ write.csv(df_out, "DATA.csv", row.names = FALSE)
 ```{r}
 head(df_out)
 ```
-

@@ -1,0 +1,43 @@
+---
+title: "Analítica de Datos"
+author: "Valeria Arciga Valencia"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Información de entrada
+
+```{r}
+data <- read.csv("DATA_final.csv")
+head(data)
+```
+
+## Correlaciones entre meteorología
+
+```{r}
+library(GGally)
+
+ggpairs(data[, c("TOUT", "RH", "SR", "RAINF", "PRS", "WSR", "WDR")],
+        title = "Matriz de correlación - Variables principales de meteorología",
+        upper = list(continuous = wrap("cor", size = 3)),
+        lower = list(continuous = wrap("points", alpha = 0.3, size = 0.5)))
+```
+
+```{r}
+ggpairs(data[, c("O3", "PM10", "PM2.5")],
+        title = "Matriz de correlación - Variables principales de meteorología",
+        upper = list(continuous = wrap("cor", size = 3)),
+        lower = list(continuous = wrap("points", alpha = 0.3, size = 0.5)))
+```
+
+modelo_O3 \<- lm(O3 \~ temperatura + radiacion + humedad + viento_vel + presion, data = train)
+
+summary(modelo_O3)
+
+```{r}
+# Modelo de regresión lineal para predecir O3
+modelo_O3 <- lm(O3 ~ TOUT + SR + RH + WSR + PRS + RAINF + WDR, data = data)
+
+# Ver resumen del modelo
+summary(modelo_O3)
+```
