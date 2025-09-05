@@ -1,0 +1,100 @@
+# Read the CSV file
+df <- read.csv("/DATA_final.csv")
+
+# Print the first few rows of the dataframe
+head(df)
+# Find the unique locations
+unique_locations <- unique(df$LOCATION)
+
+# Count the number of unique locations
+num_unique_locations <- length(unique_locations)
+
+# Print the unique locations and their count
+print("Unique Locations:")
+print(unique_locations)
+print("Number of Unique Locations:")
+print(num_unique_locations)
+
+# Filter the dataframe for location 'CE'
+df_ce <- df[df$LOCATION == "NTE2", ]
+
+# Define a function to calculate mode (handling potential multiple modes)
+get_mode <- function(v) {
+   uniqv <- unique(v)
+   # Remove NA values before calculating the mode
+   uniqv <- na.omit(uniqv)
+   if (length(uniqv) == 0) return(NA) # Return NA if no non-NA values
+   tabulate(match(v, uniqv))
+   modes <- uniqv[tabulate(match(v, uniqv)) == max(tabulate(match(v, uniqv)))]
+   if (length(modes) > 1) {
+     return(paste(modes, collapse = ", ")) # Return concatenated string if multiple modes
+   } else {
+     return(modes)
+   }
+}
+
+
+# List of pollutants to analyze
+pollutants <- c("O3", "PM10", "PM2.5")
+
+# Calculate and print statistics for each pollutant
+for (pollutant in pollutants) {
+  cat("-----------------------------------------\n")
+  cat("Statistics for", pollutant, "(Location NE):\n")
+  cat("-----------------------------------------\n")
+
+  # Measures of central tendency
+  # Use na.rm = TRUE to remove NA values before calculation
+  cat("Mean:", mean(df_ce[[pollutant]], na.rm = TRUE), "\n")
+  cat("Median:", median(df_ce[[pollutant]], na.rm = TRUE), "\n")
+  cat("Mode:", get_mode(df_ce[[pollutant]]), "\n")
+
+  # Measures of dispersion
+  cat("Range:", range(df_ce[[pollutant]], na.rm = TRUE), "\n")
+  cat("Variance:", var(df_ce[[pollutant]], na.rm = TRUE), "\n")
+  cat("Standard Deviation:", sd(df_ce[[pollutant]], na.rm = TRUE), "\n")
+
+  # Measures of position no central
+  cat("Quartiles:\n")
+  print(quantile(df_ce[[pollutant]], na.rm = TRUE))
+  cat("Percentiles (10th, 90th):\n")
+  print(quantile(df_ce[[pollutant]], probs = c(0.1, 0.9), na.rm = TRUE))
+  cat("\n")
+}
+
+# Get the total number of rows in the dataframe
+total_rows <- nrow(df)
+
+cat("Analysis of Missing, Negative, and Potentially Inconsistent Values:\n")
+cat("-----------------------------------------------------------------\n")
+
+# Iterate through each column
+for (col_name in names(df)) {
+  column_data <- df[[col_name]]
+
+  # Check for null values (NA in R)
+  null_count <- sum(is.na(column_data))
+  null_percentage <- (null_count / total_rows) * 100
+
+  # Check for negative values (only for numeric columns)
+  negative_count <- 0
+  negative_percentage <- 0
+  if (is.numeric(column_data)) {
+    negative_count <- sum(column_data < 0, na.rm = TRUE)
+    negative_percentage <- (negative_count / total_rows) * 100
+  }
+
+  inconsistent_count <- 0
+  inconsistent_percentage <- 0
+ 
+  cat("Variable:", col_name, "\n")
+  cat("  Nulls:", null_count, sprintf("(%.5f%%)", null_percentage), "\n")
+
+  if (is.numeric(column_data)) {
+    cat("  Negatives:", negative_count, sprintf("(%.5f%%)", negative_percentage), "\n")
+  } else {
+     cat("  Negatives: N/A (Not a numeric column)\n")
+  }
+
+  cat("\n")
+}

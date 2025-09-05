@@ -30,11 +30,19 @@ cols <- intersect(c("CO","NO","NO2","NOX","O3","PM10","PM2.5",
                     "PRS","RAINF","RH","SO2","SR","TOUT",
                     "WSR","WDR","YEAR"), names(df))
 
-df[cols] <- lapply(df[cols], function(v) {
+df[cols] <- Map(function(v, nm) {
   v <- suppressWarnings(as.numeric(v))
-  v[v < 0] <- NA
+  if (nm == "TOUT") {
+    v[v < -50 | v > 100] <- NA                 # Temperatura
+  } else if (nm == "PM2.5") {
+    v[v < 0 | v > 500] <- NA                   # Regla nueva PM2.5
+  } else if (nm == "PM10") {
+    v[v < 0 | v > 600] <- NA                   # Regla nueva PM10
+  } else {
+    v[v < 0] <- NA                             # Regla general
+  }
   v
-})
+}, df[cols], names(df[cols]))
 
 ```
 
@@ -50,7 +58,6 @@ na_pct_global
 colSums(is.na(df))
 
 ```
-
 
 ```{r}
 summary(df)
@@ -226,12 +233,10 @@ df_final <- df_final[order(df_final$idx), ]
 
 ```
 
-
 ```{r}
 colSums(is.na(df_final))
 
 ```
-
 
 ```{r}
 summary(df_final)
@@ -265,4 +270,3 @@ colSums(is.na(out))
 write.csv(out, "DATA_final.csv", row.names = FALSE)
 
 ```
-

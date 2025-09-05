@@ -1,0 +1,302 @@
+---
+title: "ModelosPorEstacion"
+author: "Jose Alejandro Rojas Castro"
+date: "2025-09-05"
+output: html_document
+---
+
+# Extraccion de datos
+
+```{r}
+df <- read.csv("DATA_final.csv")
+head(df)
+
+df_CE   <- df %>% filter(LOCATION == "CE")
+df_NTE2 <- df %>% filter(LOCATION == "NTE2")
+df_NE   <- df %>% filter(LOCATION == "NE")
+```
+
+Verificamos cantidad por dataframe
+
+```{r}
+sapply(list(CE = df_CE, NTE2 = df_NTE2, NE = df_NE), nrow)
+```
+
+
+# Matriz de correlacion para estacion del Centro 
+```{r}
+round(cor(df_CE[, c("Month","Day","Hour","CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]),4)
+```
+
+# Definimos otro datagrame pero solo con variables de contaminante y ambiental
+
+```{r}
+NE=df_NE[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+CE=df_CE[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+NTE2=df_NTE2[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+```
+
+# Prueba de modelos
+
+## Step para estacion Centro
+
+```{r}
+full_model <- lm(O3 ~ CO+NOX + PM10 + `PM2.5` + PRS + RAINF + RH + SO2 + SR + TOUT, data = CE)
+
+null_model <- lm(O3~1, data=CE)
+
+model_both <- step(null_model,
+                      scope = formula(full_model),
+                      direction = "both",
+                      trace = TRUE)
+summary(model_both)
+plot(model_both)
+```
+
+## PCA para el centro con matriz de varianza y matriz de correlaciones
+
+```{r}
+library(stats)
+X <- CE
+
+cpS <- princomp(X, cor = FALSE, scores = TRUE)
+cpR <- princomp(X, cor = TRUE,  scores = TRUE)
+
+par(mfrow = c(1,2))
+biplot(cpS, main = "PCA con S")
+biplot(cpR, main = "PCA con R")
+par(mfrow = c(1,1))
+
+# Scores (PC1, PC2)
+scoresS <- cpS$scores[,1:2]
+scoresR <- cpR$scores[,1:2]
+
+par(mfrow = c(1,2))
+plot(scoresS, pch=19, main="Scores S (PC1–PC2)"); text(scoresS, labels=rownames(X), pos=3, cex=.7)
+plot(scoresR, pch=19, main="Scores R (PC1–PC2)"); text(scoresR, labels=rownames(X), pos=3, cex=.7)
+par(mfrow = c(1,1))
+
+# para ver datos atipicos que pase un umbral
+thr <- qchisq(.975, df = 2)
+which(mahalanobis(scoresS, colMeans(scoresS), cov(scoresS)) > thr)  
+which(mahalanobis(scoresR, colMeans(scoresR), cov(scoresR)) > thr) 
+
+summary(cpS); summary(cpR)
+
+
+```
+
+```{r}
+# install.packages("factoextra")
+```
+
+### Ejecucion del PCA para CE
+
+```{r}
+library(FactoMineR)
+library(factoextra)
+datos <- CE
+cpR = PCA(datos,scale.unit=T)
+
+```
+
+### Graficos de PCA para CE por variable e individuo
+
+```{r}
+fviz_pca_ind(cpR, col.ind = "blue", addEllipses = TRUE, repel = FALSE)
+fviz_pca_var(cpR, col.var = "red", addEllipses = TRUE, repel = TRUE)
+fviz_screeplot(cpR)
+fviz_contrib(cpR, choice = "var")
+```
+
+
+
+### Resumen de un modelo con las 
+
+```{r}
+summary(lm(O3 ~ TOUT + RH + SR, data=CE))
+```
+
+```{r}
+CE[c(24092,24093,24094,24095,24096),]
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(tibble)
+contrib_mat <- as.data.frame(cpR$var$contrib)  # % de contribución por Dim.
+cos2_mat    <- as.data.frame(cpR$var$cos2)     # calidad de representación
+loads_mat   <- as.data.frame(cpR$var$coord)    # “cargas”/correlaciones con PCs
+
+## 4) Ver “top-N” variables que más contribuyen a una dimensión
+DIM <- 1      # <<< pon aquí el número de componente (1, 2, 3, ...)
+TOP <- 12     # <<< cuántas variables listar
+top_dim <- contrib_mat %>%
+  rownames_to_column("variable") %>%
+  arrange(desc(.data[[paste0("Dim.", DIM)]])) %>%
+  slice_head(n = TOP)
+top_dim
+
+## 5) Contribución ACUMULADA en las primeras K dimensiones
+K <- 2  # <<< cambia K (p.ej., 2 o 3)
+contrib_total <- contrib_mat %>%
+  rownames_to_column("variable") %>%
+  mutate(total_1K = rowSums(across(paste0("Dim.", 1:K)))) %>%
+  arrange(desc(total_1K))
+head(contrib_total, 15)  # top 15 por aporte total en Dim.1..K
+
+## 6) Resumen de varianza explicada por dimensión
+round(cpR$eig,3)   
+```
+
+```{r}
+install.packages("psych")
+```
+
+
+
+```{r}
+library(psych)
+R<-cor(CE)
+K <- KMO(R)
+K$MSA
+```
+
+```{r}
+modelo1 = fa(R, nfactors = 2, rotate = "none", fm = "mle")   # de máxima verosimilitud
+modelo2 = fa(R, nfactors = 2, rotate = "none", fm = "minres") # Modelo de mínimo residuo
+M1_commd = sort(modelo1$communality,decreasing = T)
+M2_commd= sort(modelo2$communality,decreasing = T)
+cbind(M1_commd,M2_commd)
+```
+```{r}
+scree(R)
+```
+
+```{r}
+library(GPArotation)
+rot = c("none", "varimax", "quartimax")
+
+bi_mod = function(tipo){
+biplot.psych(fa(CE,nfactors = 2,fm="mle",rotate = tipo),main = "",col=c(2,3,4),pch = c(21,18),group = CE[,"O3"])  }
+sapply(rot,bi_mod)
+```
+# Desde aqui a abajo 
+```{r}
+## ==== Datos (target + predictores) ====
+y   <- df_CE$O3               
+dat <- na.omit(cbind(O3 = y, CE))
+
+## ==== Train/Test rápido (80/20) ====
+set.seed(1)
+idx   <- sample.int(nrow(dat), floor(0.8*nrow(dat)))
+train <- dat[idx, ]
+test  <- dat[-idx, ]
+
+```
+
+```{r}
+install.packages("plsy")
+```
+
+
+```{r}
+library(pls)
+
+pcr_cv  <- pcr(O3 ~ ., data = train, scale = TRUE, validation = "CV")
+best_k  <- which.min(RMSEP(pcr_cv, estimate = "CV")$val[1,1,-1])
+pcr_fit <- pcr(O3 ~ ., data = train, scale = TRUE, ncomp = best_k)
+
+pred_pcr <- predict(pcr_fit, newdata = test, ncomp = best_k)
+rmse_pcr <- sqrt(mean((test$O3 - pred_pcr)^2))
+best_k; rmse_pcr
+
+```
+```{r}
+k <- 4   # <-- empieza con 4; ajusta si quieres
+
+pc <- prcomp(train[ , -1], center = TRUE, scale. = TRUE)
+Xtr <- as.data.frame(predict(pc, train[ , -1])[, 1:k, drop = FALSE])
+fit <- lm(O3 ~ ., data = cbind(O3 = train$O3, Xtr))
+
+Xte <- as.data.frame(predict(pc, test[ , -1])[, 1:k, drop = FALSE])
+pred_lm <- predict(fit, newdata = Xte)
+rmse_lm <- sqrt(mean((test$O3 - pred_lm)^2))
+rmse_lm
+
+summary(fit)
+```
+
+```{r}
+m <- lm(O3 ~ ., data = dat)           # tu modelo
+Fs <- summary(m)$fstatistic
+F_value <- unname(Fs["value"])
+df1 <- unname(Fs["numdf"]); df2 <- unname(Fs["dendf"])
+p_value <- pf(F_value, df1, df2, lower.tail = FALSE)
+c(F = F_value, df1 = df1, df2 = df2, p = p_value)
+
+```
+
+```{r}
+anova(fit)
+```
+
+# De aqui se juntan los PCs y abajo los modelos
+
+```{r}
+## ==== 0) Datos: O3 como target + predictores CE ====
+# CE ya es: df_CE[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+dat <- na.omit(cbind(O3 = df_CE$O3, CE))   # quita filas con NA
+
+## ==== 1) PCA en predictores y elección de k ====
+pc  <- prcomp(dat[ , -1], center = TRUE, scale. = TRUE)
+eig <- pc$sdev^2
+pct <- eig / sum(eig) * 100
+k   <- 4L   # << usa 4 (ajusta si quieres)
+
+# Scores PC1..PCk
+scores <- as.data.frame(predict(pc, dat[ , -1])[, 1:k, drop = FALSE])
+colnames(scores) <- paste0("PC", 1:k)
+
+## ==== 2) Modelo lineal con PCs ====
+dat_lm <- cbind(O3 = dat$O3, scores)
+m <- lm(O3 ~ ., data = dat_lm)
+
+## ==== 3) ANOVA Type I (secuencial; depende del orden) ====
+a_type1 <- anova(m)
+
+## ==== 4) Tests parciales (independientes del orden) ====
+d1 <- drop1(m, test = "F")   # quita 1 PC a la vez desde el modelo completo
+
+## R² parcial de cada PC (a partir del F parcial; df1=1)
+Fv  <- d1$"F value"[!is.na(d1$"F value")]
+df2 <- df.residual(m)
+partial_R2 <- setNames( (Fv)/(Fv + df2), rownames(d1)[!is.na(d1$"F value")] )
+
+## ==== 5) Comparación con modelo reducido (ej.: sin PC1) ====
+m_red <- update(m, . ~ . - PC1)
+cmp   <- anova(m_red, m)     # p<0.05 => PC1 aporta significativamente
+
+## ==== 6) Salidas útiles ====
+cat("Eigenvalues y % var (1..k):\n")
+print( round(cbind(eigenvalue = eig[1:k], pct_var = pct[1:k], pct_cum = cumsum(pct)[1:k]), 3) )
+
+cat("\nANOVA Type I (secuencial):\n"); print(a_type1)
+cat("\nTests parciales (drop1):\n");  print(d1)
+cat("\nR2 parciales por PC:\n");      print( round(partial_R2, 4) )
+cat("\nComparación m_red vs m (sin PC1):\n"); print(cmp)
+
+```
+
+```{r}
+par(mfrow = c(2,2))
+plot(fit)
+```
+
+```{r}
+m <- lm(log1p(O3) ~ PC1 + PC2 +PC3 +PC4, data = dat_lm)
+par(mfrow = c(2,2))
+plot(m)
+```
+
