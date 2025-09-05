@@ -3,6 +3,8 @@ title: "PCA NE"
 output: html_document
 ---
 
+# Extraccion de datos
+
 ```{r}
 df <- read.csv("DATA_final.csv")
 head(df)
@@ -12,19 +14,29 @@ df_NTE2 <- df %>% filter(LOCATION == "NTE2")
 df_NE   <- df %>% filter(LOCATION == "NE")
 ```
 
+Verificamos cantidad por dataframe
+
 ```{r}
 sapply(list(CE = df_CE, NTE2 = df_NTE2, NE = df_NE), nrow)
 ```
+
+# Matriz de correlacion para estacion del Centro
 
 ```{r}
 round(cor(df_NE[, c("Month","Day","Hour","CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]),4)
 ```
 
+# Definimos otro datagrame pero solo con variables de contaminante y ambiental
+
 ```{r}
-NE=df_NE[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
-CE=df_CE[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
-NTE2=df_NTE2[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+NE=df_NE[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+CE=df_CE[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+NTE2=df_NTE2[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
 ```
+
+# Prueba de modelos
+
+## Step para estacion Centro
 
 ```{r}
 full_model <- lm(O3 ~ CO+NOX + PM10 + `PM2.5` + PRS + RAINF + RH + SO2 + SR + TOUT, data = NE)
@@ -38,6 +50,8 @@ model_both <- step(null_model,
 summary(model_both)
 plot(model_both)
 ```
+
+## PCA para el centro con matriz de varianza y matriz de correlaciones
 
 ```{r}
 library(stats)
@@ -71,8 +85,10 @@ summary(cpS); summary(cpR)
 ```
 
 ```{r}
-install.packages("factoextra")
+# install.packages("factoextra")
 ```
+
+### Ejecucion del PCA para CE
 
 ```{r}
 library(FactoMineR)
@@ -82,6 +98,8 @@ cpR = PCA(datos,scale.unit=T)
 
 ```
 
+### Graficos de PCA para CE por variable e individuo
+
 ```{r}
 fviz_pca_ind(cpR, col.ind = "blue", addEllipses = TRUE, repel = FALSE)
 fviz_pca_var(cpR, col.var = "red", addEllipses = TRUE, repel = TRUE)
@@ -89,6 +107,73 @@ fviz_screeplot(cpR)
 fviz_contrib(cpR, choice = "var")
 ```
 
+### Resumen de un modelo con las
+
 ```{r}
 summary(lm(O3 ~ TOUT + RH + SR, data=NE))
+```
+
+```{r}
+CE[c(24092,24093,24094,24095,24096),]
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(tibble)
+contrib_mat <- as.data.frame(cpR$var$contrib)  # % de contribución por Dim.
+cos2_mat    <- as.data.frame(cpR$var$cos2)     # calidad de representación
+loads_mat   <- as.data.frame(cpR$var$coord)    # “cargas”/correlaciones con PCs
+
+## 4) Ver “top-N” variables que más contribuyen a una dimensión
+DIM <- 1      # <<< pon aquí el número de componente (1, 2, 3, ...)
+TOP <- 12     # <<< cuántas variables listar
+top_dim <- contrib_mat %>%
+  rownames_to_column("variable") %>%
+  arrange(desc(.data[[paste0("Dim.", DIM)]])) %>%
+  slice_head(n = TOP)
+top_dim
+
+## 5) Contribución ACUMULADA en las primeras K dimensiones
+K <- 2  # <<< cambia K (p.ej., 2 o 3)
+contrib_total <- contrib_mat %>%
+  rownames_to_column("variable") %>%
+  mutate(total_1K = rowSums(across(paste0("Dim.", 1:K)))) %>%
+  arrange(desc(total_1K))
+head(contrib_total, 15)  # top 15 por aporte total en Dim.1..K
+
+## 6) Resumen de varianza explicada por dimensión
+round(cpR$eig,3)   
+```
+
+```{r}
+install.packages("psych")
+```
+
+```{r}
+library(psych)
+R<-cor(NE)
+K <- KMO(R)
+K$MSA
+```
+
+```{r}
+modelo1 = fa(R, nfactors = 2, rotate = "none", fm = "mle")   # de máxima verosimilitud
+modelo2 = fa(R, nfactors = 2, rotate = "none", fm = "minres") # Modelo de mínimo residuo
+M1_commd = sort(modelo1$communality,decreasing = T)
+M2_commd= sort(modelo2$communality,decreasing = T)
+cbind(M1_commd,M2_commd)
+```
+
+```{r}
+scree(R)
+```
+
+```{r}
+library(GPArotation)
+rot = c("none", "varimax", "quartimax")
+
+bi_mod = function(tipo){
+biplot.psych(fa(CE,nfactors = 2,fm="mle",rotate = tipo),main = "",col=c(2,3,4),pch = c(21,18),group = CE[,"O3"])  }
+sapply(rot,bi_mod)
 ```
