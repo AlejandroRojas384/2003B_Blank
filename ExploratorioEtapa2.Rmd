@@ -1,0 +1,37 @@
+---
+title: "Revisión Etapa2"
+author: "Valeria Arciga"
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+# Analisis exploratorio etapa 2
+
+## Carga de los datos
+
+```{r}
+
+path <- "DATA_final.csv"
+df   <- read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+```
+
+## Actualización de librerias
+
+No sé como hacerlo para en renv
+
+```{r}
+install.packages("psych", "ggplot2", "dplyr", "corrplot")
+```
+
+```{r}
+library(psych)
+library(ggplot2)
+library(dplyr)
+library(corrplot)
+```
+
+## Medidas de tendencia central
+
+```{r}
+summary(df)
+```
