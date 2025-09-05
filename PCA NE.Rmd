@@ -177,3 +177,129 @@ bi_mod = function(tipo){
 biplot.psych(fa(CE,nfactors = 2,fm="mle",rotate = tipo),main = "",col=c(2,3,4),pch = c(21,18),group = CE[,"O3"])  }
 sapply(rot,bi_mod)
 ```
+
+
+# Desde aqui a abajo
+
+```{r}
+## ==== Datos (target + predictores) ====
+y   <- df_NE$O3               
+dat <- na.omit(cbind(O3 = y, NE))
+
+## ==== Train/Test rápido (80/20) ====
+set.seed(1)
+idx   <- sample.int(nrow(dat), floor(0.8*nrow(dat)))
+train <- dat[idx, ]
+test  <- dat[-idx, ]
+
+```
+
+```{r}
+install.packages("plsy")
+```
+
+```{r}
+library(pls)
+
+pcr_cv  <- pcr(O3 ~ ., data = train, scale = TRUE, validation = "CV")
+best_k  <- which.min(RMSEP(pcr_cv, estimate = "CV")$val[1,1,-1])
+pcr_fit <- pcr(O3 ~ ., data = train, scale = TRUE, ncomp = best_k)
+
+pred_pcr <- predict(pcr_fit, newdata = test, ncomp = best_k)
+rmse_pcr <- sqrt(mean((test$O3 - pred_pcr)^2))
+best_k; rmse_pcr
+
+```
+
+```{r}
+k <- 4   # <-- empieza con 4; ajusta si quieres
+
+pc <- prcomp(train[ , -1], center = TRUE, scale. = TRUE)
+Xtr <- as.data.frame(predict(pc, train[ , -1])[, 1:k, drop = FALSE])
+fit <- lm(O3 ~ ., data = cbind(O3 = train$O3, Xtr))
+
+Xte <- as.data.frame(predict(pc, test[ , -1])[, 1:k, drop = FALSE])
+pred_lm <- predict(fit, newdata = Xte)
+rmse_lm <- sqrt(mean((test$O3 - pred_lm)^2))
+rmse_lm
+
+summary(fit)
+```
+
+```{r}
+m <- lm(O3 ~ ., data = dat)           # tu modelo
+Fs <- summary(m)$fstatistic
+F_value <- unname(Fs["value"])
+df1 <- unname(Fs["numdf"]); df2 <- unname(Fs["dendf"])
+p_value <- pf(F_value, df1, df2, lower.tail = FALSE)
+c(F = F_value, df1 = df1, df2 = df2, p = p_value)
+
+```
+
+```{r}
+anova(fit)
+```
+
+# De aqui se juntan los PCs y abajo los modelos
+
+```{r}
+## ==== 0) Datos: O3 como target + predictores CE ====
+# CE ya es: df_CE[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+dat <- na.omit(cbind(O3 = df_CE$O3, CE))   # quita filas con NA
+
+## ==== 1) PCA en predictores y elección de k ====
+pc  <- prcomp(dat[ , -1], center = TRUE, scale. = TRUE)
+eig <- pc$sdev^2
+pct <- eig / sum(eig) * 100
+k   <- 4L   # << usa 4 (ajusta si quieres)
+
+# Scores PC1..PCk
+scores <- as.data.frame(predict(pc, dat[ , -1])[, 1:k, drop = FALSE])
+colnames(scores) <- paste0("PC", 1:k)
+
+## ==== 2) Modelo lineal con PCs ====
+dat_lm <- cbind(O3 = dat$O3, scores)
+m <- lm(O3 ~ ., data = dat_lm)
+
+## ==== 3) ANOVA Type I (secuencial; depende del orden) ====
+a_type1 <- anova(m)
+
+## ==== 4) Tests parciales (independientes del orden) ====
+d1 <- drop1(m, test = "F")   # quita 1 PC a la vez desde el modelo completo
+
+## R² parcial de cada PC (a partir del F parcial; df1=1)
+Fv  <- d1$"F value"[!is.na(d1$"F value")]
+df2 <- df.residual(m)
+partial_R2 <- setNames( (Fv)/(Fv + df2), rownames(d1)[!is.na(d1$"F value")] )
+
+## ==== 5) Comparación con modelo reducido (ej.: sin PC1) ====
+m_red <- update(m, . ~ . - PC1)
+cmp   <- anova(m_red, m)     # p<0.05 => PC1 aporta significativamente
+
+## ==== 6) Salidas útiles ====
+cat("Eigenvalues y % var (1..k):\n")
+print( round(cbind(eigenvalue = eig[1:k], pct_var = pct[1:k], pct_cum = cumsum(pct)[1:k]), 3) )
+
+cat("\nANOVA Type I (secuencial):\n"); print(a_type1)
+cat("\nTests parciales (drop1):\n");  print(d1)
+cat("\nR2 parciales por PC:\n");      print( round(partial_R2, 4) )
+cat("\nComparación m_red vs m (sin PC1):\n"); print(cmp)
+
+```
+
+```{r}
+par(mfrow = c(2,2))
+plot(fit)
+```
+
+```{r}
+m <- lm(log1p(O3) ~ PC1 + PC2 +PC3 +PC4, data = dat_lm)
+par(mfrow = c(2,2))
+plot(m)
+```
+
+```{r}
+summary(m)
+```
+
+
