@@ -1,0 +1,99 @@
+---
+title: "ModelosPorEstacion"
+author: "Jose Alejandro Rojas Castro"
+date: "2025-09-05"
+output: html_document
+---
+
+```{r}
+df <- read.csv("DATA_final.csv")
+head(df)
+
+df_CE   <- df %>% filter(LOCATION == "CE")
+df_NTE2 <- df %>% filter(LOCATION == "NTE2")
+df_NE   <- df %>% filter(LOCATION == "NE")
+```
+
+```{r}
+sapply(list(CE = df_CE, NTE2 = df_NTE2, NE = df_NE), nrow)
+```
+
+```{r}
+round(cor(df_CE[, c("Month","Day","Hour","CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]),4)
+```
+
+```{r}
+NE=df_NE[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+CE=df_CE[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+NTE2=df_NTE2[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+```
+
+```{r}
+full_model <- lm(O3 ~ CO+NOX + PM10 + `PM2.5` + PRS + RAINF + RH + SO2 + SR + TOUT, data = CE)
+
+null_model <- lm(O3~1, data=CE)
+
+model_both <- step(null_model,
+                      scope = formula(full_model),
+                      direction = "both",
+                      trace = TRUE)
+summary(model_both)
+plot(model_both)
+```
+
+
+```{r}
+library(stats)
+X <- CE
+
+cpS <- princomp(X, cor = FALSE, scores = TRUE)
+cpR <- princomp(X, cor = TRUE,  scores = TRUE)
+
+par(mfrow = c(1,2))
+biplot(cpS, main = "PCA con S")
+biplot(cpR, main = "PCA con R")
+par(mfrow = c(1,1))
+
+# Scores (PC1, PC2)
+scoresS <- cpS$scores[,1:2]
+scoresR <- cpR$scores[,1:2]
+
+par(mfrow = c(1,2))
+plot(scoresS, pch=19, main="Scores S (PC1–PC2)"); text(scoresS, labels=rownames(X), pos=3, cex=.7)
+plot(scoresR, pch=19, main="Scores R (PC1–PC2)"); text(scoresR, labels=rownames(X), pos=3, cex=.7)
+par(mfrow = c(1,1))
+
+# para ver datos atipicos que pase un umbral
+thr <- qchisq(.975, df = 2)
+which(mahalanobis(scoresS, colMeans(scoresS), cov(scoresS)) > thr)  
+which(mahalanobis(scoresR, colMeans(scoresR), cov(scoresR)) > thr) 
+
+summary(cpS); summary(cpR)
+
+
+```
+
+```{r}
+install.packages("factoextra")
+```
+
+```{r}
+library(FactoMineR)
+library(factoextra)
+datos <- CE
+cpR = PCA(datos,scale.unit=T)
+
+```
+
+
+```{r}
+fviz_pca_ind(cpR, col.ind = "blue", addEllipses = TRUE, repel = FALSE)
+fviz_pca_var(cpR, col.var = "red", addEllipses = TRUE, repel = TRUE)
+fviz_screeplot(cpR)
+fviz_contrib(cpR, choice = "var")
+```
+
+```{r}
+summary(lm(O3 ~ TOUT + RH + SR, data=CE))
+```
+
