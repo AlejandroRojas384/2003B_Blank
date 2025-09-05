@@ -59,7 +59,6 @@ colSums(is.na(df))
 
 ```
 
-
 ```{r}
 summary(df)
 ```
@@ -234,12 +233,10 @@ df_final <- df_final[order(df_final$idx), ]
 
 ```
 
-
 ```{r}
 colSums(is.na(df_final))
 
 ```
-
 
 ```{r}
 summary(df_final)
@@ -273,4 +270,3 @@ colSums(is.na(out))
 write.csv(out, "DATA_final.csv", row.names = FALSE)
 
 ```
-
