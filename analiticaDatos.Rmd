@@ -41,3 +41,76 @@ modelo_O3 <- lm(O3 ~ TOUT + SR + RH + WSR + PRS + RAINF + WDR, data = data)
 # Ver resumen del modelo
 summary(modelo_O3)
 ```
+
+```{r}
+modelo_temporal <- lm(O3 ~ TOUT + SR + RH + WSR + PRS + 
+                      RAINF + WDR + as.factor(Hour) + as.factor(Month), 
+                      data = data)
+```
+
+```{r}
+summary(modelo_temporal)
+```
+
+## Series de tiempo
+
+```{r}
+# Instalar paquetes si es necesario
+if(!require(ggplot2)) install.packages("ggplot2")
+if(!require(dplyr)) install.packages("dplyr")
+if(!require(tidyr)) install.packages("tidyr")
+if(!require(lubridate)) install.packages("lubridate")
+
+# Cargar librerías
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+
+# Crear fecha completa a partir de año, mes, día y hora
+data$fecha <- with(data, make_datetime(Year, Month, Day, Hour))
+
+# Crear variable de año-mes para agrupamiento
+data$año_mes <- floor_date(data$fecha, "month")
+```
+
+## Resumen temporal
+
+```{r}
+# Resumen estadístico por mes y año
+resumen_mensual <- data %>%
+  group_by(Year, Month) %>%
+  summarise(across(c(CO, NO, NO2, NOX, O3, PM10, PM2.5, PRS, RAINF, RH, SO2, SR, TOUT, WSR, WDR),
+                   list(media = mean, sd = sd, min = min, max = max), 
+                   na.rm = TRUE, .names = "{.col}_{.fn}"))
+
+# Ver las primeras filas
+head(resumen_mensual)
+```
+
+## Series de tiempo
+
+```{r}
+variables <- c("NO", "NO2", "NOX", "O3", "PM10", "PM2.5", 
+                            "PRS", "RAINF", "RH", "SO2", "SR", "TOUT", 
+                            "WSR", "WDR")
+
+# Preparar datos para múltiples series
+data_largo <- data %>%
+  group_by(Year, Month) %>%
+  summarise(across(all_of(variables), mean, na.rm = TRUE)) %>%
+  mutate(fecha = make_date(Year, Month, 1)) %>%
+  pivot_longer(cols = all_of(variables), 
+               names_to = "variable", 
+               values_to = "valor")
+
+# Gráfico de panel múltiple
+ggplot(data_largo, aes(x = fecha, y = valor, color = variable)) +
+  geom_line(alpha = 0.7) +
+  facet_wrap(~ variable, scales = "free_y", ncol = 3) +
+  labs(title = "Series de tiempo de variables de contaminación y meteorológicas",
+       x = "Fecha", y = "Valor promedio mensual") +
+  theme_minimal() +
+  theme(legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
