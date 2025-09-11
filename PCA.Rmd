@@ -8,12 +8,18 @@ output: html_document
 # Extraccion de datos
 
 ```{r}
+install.packages("dplyr")
+library(dplyr)
+```
+
+
+```{r}
 df <- read.csv("DATA_final.csv")
 head(df)
 
-df_CE   <- df %>% filter(LOCATION == "CE")
-df_NTE2 <- df %>% filter(LOCATION == "NTE2")
-df_NE   <- df %>% filter(LOCATION == "NE")
+df_CE   <- df %>% filter(LOCATION == "CE") %>% filter(Hour > 6)
+df_NTE2 <- df %>% filter(LOCATION == "NTE2") %>% filter(Hour > 6)
+df_NE   <- df %>% filter(LOCATION == "NE") %>% filter(Hour > 6)
 ```
 
 Verificamos cantidad por dataframe
@@ -31,33 +37,16 @@ round(cor(df_CE[, c("Month","Day","Hour","CO","NO","NO2","NOX","O3","PM10","PM2.
 # Definimos otro datagrame pero solo con variables de contaminante y ambiental
 
 ```{r}
-NE=df_NE[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
-CE=df_CE[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
-NTE2=df_NTE2[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
-```
-
-# Prueba de modelos
-
-## Step para estacion Centro
-
-```{r}
-full_model <- lm(O3 ~ CO+NOX + PM10 + `PM2.5` + PRS + RAINF + RH + SO2 + SR + TOUT, data = CE)
-
-null_model <- lm(O3~1, data=CE)
-
-model_both <- step(null_model,
-                      scope = formula(full_model),
-                      direction = "both",
-                      trace = TRUE)
-summary(model_both)
-plot(model_both)
+NE=df_NE[, c("O3","CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+CE=df_CE[, c("O3","CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+NTE2=df_NTE2[, c("O3","CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
 ```
 
 ## PCA para el centro con matriz de varianza y matriz de correlaciones
 
 ```{r}
 library(stats)
-X <- CE
+X <- CE[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
 
 cpS <- princomp(X, cor = FALSE, scores = TRUE)
 cpR <- princomp(X, cor = TRUE,  scores = TRUE)
@@ -66,7 +55,7 @@ par(mfrow = c(1,2))
 biplot(cpS, main = "PCA con S")
 biplot(cpR, main = "PCA con R")
 par(mfrow = c(1,1))
-
++
 # Scores (PC1, PC2)
 scoresS <- cpS$scores[,1:2]
 scoresR <- cpR$scores[,1:2]
@@ -95,8 +84,8 @@ summary(cpS); summary(cpR)
 ```{r}
 library(FactoMineR)
 library(factoextra)
-datos <- CE
-cpR = PCA(datos,scale.unit=T)
+
+cpR = PCA(X,scale.unit=T)
 
 ```
 
@@ -158,9 +147,11 @@ install.packages("psych")
 
 ```{r}
 library(psych)
-R<-cor(CE)
+R<-cor(X)
 K <- KMO(R)
 K$MSA
+K$MSAi
+
 ```
 
 ```{r}
@@ -179,7 +170,7 @@ library(GPArotation)
 rot = c("none", "varimax", "quartimax")
 
 bi_mod = function(tipo){
-biplot.psych(fa(CE,nfactors = 2,fm="mle",rotate = tipo),main = "",col=c(2,3,4),pch = c(21,18),group = CE[,"O3"])  }
+biplot.psych(fa(X,nfactors = 2,fm="mle",rotate = tipo),main = "",col=c(2,3,4),pch = c(21,18))  }
 sapply(rot,bi_mod)
 ```
 # Desde aqui a abajo 
@@ -197,7 +188,7 @@ test  <- dat[-idx, ]
 ```
 
 ```{r}
-install.packages("plsy")
+# install.packages("plsy")
 ```
 
 
@@ -292,11 +283,84 @@ cat("\nComparación m_red vs m (sin PC1):\n"); print(cmp)
 ```{r}
 par(mfrow = c(2,2))
 plot(fit)
+summary(fit)
 ```
 
 ```{r}
 m <- lm(log1p(O3) ~ PC1 + PC2 +PC3 +PC4, data = dat_lm)
 par(mfrow = c(2,2))
 plot(m)
+summary(m)
+```
+```{r}
+install.packages("sandwich")
+```
+
+
+```{r}
+m_log <- m
+coefs <- coef(m_log)
+efectos_pct <- (exp(coefs[-1]) - 1) * 100
+round(efectos_pct, 1)
+pred_log <- predict(m_log)          # en log(1+O3)
+pred_O3  <- exp(pred_log) - 1       # vuelve a O3
+
+rmse_O3 <- sqrt(mean((dat_lm$O3 - pred_O3)^2))
+R2_O3   <- cor(dat_lm$O3, pred_O3)^2
+c(RMSE=rmse_O3, R2_en_O3=R2_O3)
+# Heterocedasticidad
+lmtest::bptest(m_log)   # p>0.05 ideal; si <0.05 aún hay algo de hetero
+car::ncvTest(m_log)
+
+# Normalidad (orientativo; confía más en QQ)
+nortest::ad.test(rstandard(m_log))
+
+# Errores estándar robustos (si hay hetero, para p-values/IC confiables)
+lmtest::coeftest(m_log, vcov = sandwich::vcovHC(m_log, type = "HC3"))
+
+
+```
+
+```{r}
+library(sandwich); library(lmtest)
+
+coeftest(m_log, vcov = vcovHC(m_log, type = "HC3"))
+
+```
+
+```{r}
+library(sandwich); library(lmtest)
+
+# 1) Coeficientes con SE robustos HC3
+V    <- vcovHC(m_log, type = "HC3")
+ct   <- coeftest(m_log, vcov = V)   # igual a lo que ya mostraste
+print(ct)
+
+# 2) IC95% robustos (en escala log) y en % sobre (1+O3)
+b     <- coef(m_log)
+se    <- sqrt(diag(V))
+z     <- qnorm(0.975)
+ci_log <- cbind(lo = b - z*se, hi = b + z*se)
+
+# Efectos % por +1 DE del PC (porque el PCA fue estandarizado)
+ef_pct    <- (exp(b[-1]) - 1) * 100
+ci_pct    <- (exp(ci_log[-1, , drop=FALSE]) - 1) * 100
+resumen <- data.frame(
+  PC = names(ef_pct),
+  efecto_pct = ef_pct,
+  ic95_lo_pct = ci_pct[, "lo"],
+  ic95_hi_pct = ci_pct[, "hi"]
+)
+round(resumen, 2)
+
+```
+
+```{r}
+# WLS rápido (peso ≈ 1/μ^2)
+mu <- fitted(m_log)
+w  <- 1 / (mu^2 + 1e-8)
+m_wls <- lm(log1p(O3) ~ PC1 + PC2 + PC3 + PC4, data = dat_lm, weights = w)
+par(mfrow=c(2,2)); plot(m_wls); par(mfrow=c(1,1))
+
 ```
 

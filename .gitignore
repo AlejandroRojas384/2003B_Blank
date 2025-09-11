@@ -6,3 +6,4 @@ renv/staging/
 output/
 
 /.quarto/
+.RDataTmp1
