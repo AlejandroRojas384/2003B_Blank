@@ -5,7 +5,11 @@ date: "2025-08-21"
 output: html_document
 ---
 
-# Data Total
+# Imputación
+
+En el proceso de imputación se va a emplear la base de datos que contiene toda la información de 2022 a 2025, con el fin de identficar los datos nulos y realizar el proceso de imputación correspondiente para la generación de información.
+
+## Datos Finales
 
 pipeline de imputación
 
