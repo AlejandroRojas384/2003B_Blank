@@ -5,7 +5,15 @@ date: "2025-08-21"
 output: html_document
 ---
 
-# Limpieza 2025
+# Limpieza de Datos
+
+Equipo 6.
+
+En el presente R markdown se hace el preprocesamiento de datos, en donde empleando las bases de datos de los distintos años del repositorio que han sido seleccionadas se hace el análisis de datos y la estandarización de datos.
+
+Para este procedimiento, en el entendido de que se cuentan con múltiples bases de datos dependiendo del periodo temporal se hace el procesamiento por cada base de datos para la información de SIMA desde 2022 hasta 2025.
+
+## Importación de Librerías correspondientes
 
 ```{r}
 # install.packages(c("readxl","dplyr","purrr","janitor","stringr","lubridate","readr"))
@@ -16,11 +24,14 @@ library(janitor)
 library(stringr)
 library(lubridate)
 library(readr)
+```
 
-# ---------- Config ----------
-archivo_2025 <- "data/BD 2025.xlsx"
+## Estandarización y esquema esperado
 
-# columnas objetivo en el orden deseado
+Para el desarrollo de las bases de datos se establece un vector con el esquema final y el mapeo de nombres limpios, que se puede emplear para renombrar columnas presentes.
+
+```{r}
+# Orden de columnas nombrado
 cols_final <- c("LOCATION","DATE","CO","NO","NO2","NOX","O3","PM10","PM2.5",
                 "PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR")
 
@@ -44,10 +55,16 @@ map_names <- c(
   "wsr"    = "WSR",
   "wdr"    = "WDR"
 )
+```
+
+## Funciones reutilizables para la limpieza
+
+```{r}
 
 # ---------- Helpers ----------
 
-# 1) Parsear DATE: admite texto en varios formatos o serial de Excel
+# 1) Parsear DATE: admite texto en varios formatos o serial de Excel.
+# Se busca convertir la columna de fechas de distintos formatos.
 parse_date_flex <- function(x) {
   # si es numeric: asumir serial Excel
   if (is.numeric(x)) {
@@ -63,7 +80,7 @@ parse_date_flex <- function(x) {
                "Ymd","Y-m-d","Y/m/d","d/m/Y","m/d/Y","dmY","mdY"),
     tz = "UTC"
   ))
-  # si todos NA, intentar convertir texto->número->serial
+  # si todos son datos nulos NA, intentar convertir texto->número->serial
   if (all(is.na(out))) {
     num <- suppressWarnings(parse_double(xx))
     out <- as.POSIXct(num * 86400, origin = "1899-12-30", tz = "UTC")
@@ -71,7 +88,7 @@ parse_date_flex <- function(x) {
   out
 }
 
-# 2) Convertir a numérico: vacíos/“NULL” -> NA, extrae número si hay unidades pegadas
+# 2) Convertir valores que tienen texto a numérico: vacíos/“NULL” -> NA, extrae número si hay unidades pegadas
 to_num <- function(v) {
   v <- as.character(v)
   v[v == "" | tolower(v) == "null"] <- NA
@@ -81,7 +98,7 @@ to_num <- function(v) {
 # 3) Detectar y eliminar una fila de “unidades” (ppm, ppb, µg/m3, etc.)
 es_fila_unidades <- function(df_clean) {
   if (!"date" %in% names(df_clean)) return(FALSE)
-  # mirar la PRIMERA(s) filas: si casi todas las columnas no-date son texto con letras -> unidades
+  # mirar PRIMERA fila: casi todas las columnas no-date son texto con letras -> unidades
   cand <- df_clean[1, setdiff(names(df_clean), "date"), drop = FALSE]
   vals <- unlist(cand, use.names = FALSE)
   vals <- as.character(vals)
@@ -89,11 +106,23 @@ es_fila_unidades <- function(df_clean) {
   sum_letras <- sum(grepl("[A-Za-z°%µ/]", vals, perl = TRUE), na.rm = TRUE)
   sum_letras >= max(4, floor(0.5 * ncol(cand)))  # criterio sencillo y robusto
 }
+```
+
+Al tener las funciones reutilizables, además de la función a implementar en Limpieza 2025, se procede a llamar en distintas ocasiones a estas funciones, reutilizando código y haciendo más eficiente el proceso de limpieza de datos.
+
+## Limpieza 2025
+
+Se realiza la definición del archivo, se ajusta el procesamiento de las hojas, concatenando todo a un dataframe y se hace el guardado de información empleando las funciones documentadas anteriormente.
+
+```{r}
+# Definición de archivo
+archivo_2025 <- "data/BD 2025.xlsx"
+
 
 # ---------- Proceso por hoja (estación) ----------
-
+# Función reutilizable
 procesar_hoja <- function(hoja) {
-  # leo todo como TEXTO para controlar NAs y evitar warnings
+  # Lectura de todo como TEXTO para controlar NAs y evitar warnings
   df <- read_excel(archivo_2025, sheet = hoja, col_types = "text") %>%
         clean_names()
 
@@ -142,21 +171,25 @@ procesar_hoja <- function(hoja) {
 hojas <- excel_sheets(archivo_2025)
 datos_2025 <- map_dfr(hojas, procesar_hoja) %>%
   arrange(LOCATION, DATE)
+```
 
+Guardado de la información y vista previa del procesamiento de datos
+
+```{r}
 # ---------- Guardar ----------
 write.csv(datos_2025, "2025.csv", row.names = FALSE)
 
 # Vista rápida
 print(head(datos_2025))
-
 ```
 
-# Limpieza 2024
+## Limpieza 2024
 
+Al conocer las columnas finales, se fuerzan los encabezados definicos y se hace la asignación de nombres limpios.
+
+Se aplican las funciones para la conversión de fecha, conversión numérica y se obtiene la salida de la base de datos de 2024.
 
 ```{r}
-
-
 archivo_2024 <- "data/BD 2024.xlsx"
 
 cols_final <- c("LOCATION","DATE","CO","NO","NO2","NOX","O3",
@@ -228,10 +261,16 @@ head(datos_2024, 40)
 
 ```
 
-# Limpieza 2022 y 2023
+## Limpieza 2022 y 2023
+
+Dados los datos, se hace la limpieza para la base de datos que tiene información de ambos, se excluye la hoja de catálogo, a modo de que se pueda seguir el mismo orden de las bases anteriores.
+
+Se emplea el helper en donde se vectoriza, se hace la conversión de información a las fechas.
+
+Se hace la separación de la información en dos bases de datos.
 
 ```{r}
-# 1) Archivo y hojas (excluye "CATÁLOGO", en el mismo orden del Excel)
+# 1) Archivo y hojas (excluye"CATÁLOGO", en el mismo orden del Excel)
 archivo_2223 <- "data/BD 2022-2023.xlsx"
 sheets_2223  <- setdiff(excel_sheets(archivo_2223), "CATÁLOGO")
 
@@ -298,6 +337,8 @@ write_csv(datos_2023, "2023.csv")
 head(datos_2022)
 ```
 
+Se hace la prueba de las distintas locaciones que se tienen en la base de datos.
+
 ```{r}
 # valores únicos de LOCATION en 2022
 unique_locations_2022 <- datos_2022 %>% distinct(LOCATION) %>% arrange(LOCATION)
@@ -307,15 +348,16 @@ unique_locations_2023 <- datos_2023 %>% distinct(LOCATION) %>% arrange(LOCATION)
 
 unique_locations_2024 <- datos_2024 %>% distinct(LOCATION) %>% arrange(LOCATION)
 
-
 unique_locations_2022
 unique_locations_2023
 unique_locations_2024
-
 ```
-```{r}
-library(dplyr)
 
+## Listados de ubicaciones
+
+Dirccionario con los nombres de las estaciones.
+
+```{r}
 # diccionario de mapeo
 map_loc <- c(
   "CENTRO"     = "CE",
@@ -341,9 +383,11 @@ datos_2022 <- datos_2022 %>%
 
 datos_2023 <- datos_2023 %>%
   mutate(LOCATION = recode(LOCATION, !!!map_loc))
-
 ```
 
+## Añadir año y unir todas las bases de datos
+
+Dada cada una de las bases de datos, se hace la creación de la columna YEAR con el año correspondiente para posteriormente agrupar la información. Se ha concatenado la información verticalmente, contando registros por ubicación y año.
 
 ```{r}
 # Asegurar que cada dataset tenga su columna YEAR
@@ -371,7 +415,8 @@ resumen_wide <- resumen_registros %>%
 resumen_registros   # formato largo
 resumen_wide        # formato comparativo
 ```
-# Revisar dias distintos de 2023
+
+## Revisar dias distintos de 2023
 
 ```{r}
 # Revisar rango de fechas
@@ -397,11 +442,11 @@ dias_faltantes <- setdiff(dias_esperados, dias_presentes)
 dias_faltantes
 ```
 
-# 2023 está incompleto, se usa otro dataset 
+Dada la observación de que está incompleta la base de datos de 2023, se hace el procesamiento de información nuevamente.
+
+## 2023 incompleto, se usa otro dataset
 
 ```{r}
-# ================== LIMPIEZA BD 2023-2024 (formato por bloques) ==================
-# Requisitos: readxl, dplyr, purrr, readr, lubridate
 library(readxl); library(dplyr); library(purrr); library(readr); library(lubridate)
 
 # ---- 0) Archivo de origen y salida
@@ -409,11 +454,11 @@ archivo_2023_2024 <- "data/BD 2023-2024.xlsx"
 salida_csv        <- "data/datos_2023_2024.csv"   
 salida_rds        <- "data/datos_2023_2024.rds"
 
-# ---- 1) Esquema objetivo
+# 1) Esquema objetivo
 vars <- c("CO","NO","NO2","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT","WSR","WDR")
 cols_final <- c("LOCATION","DATE", vars)
 
-# ---- 2) Helpers
+# 2) Helpers
 parse_date_flex <- function(x){
   num <- suppressWarnings(as.numeric(x))
   out <- rep(as.POSIXct(NA, tz="UTC"), length(x))
@@ -438,7 +483,7 @@ to_num <- function(v){
   suppressWarnings(readr::parse_number(v))
 }
 
-# ---- 3) Procesar UNA hoja con el formato: 
+# 3) Procesar UNA hoja con el formato: 
 # Col A = date; Bloques de 15 vars (B:P) por estación; 1 col separadora vacía y se repite.
 procesar_hoja_bloques <- function(archivo, hoja, sep_cols = 1){
   # Leer 2 filas de encabezado (1=estación, 2=unidades)
@@ -526,6 +571,8 @@ write_csv(datos_2023, "data/2023.csv")
 
 ## Conteo registro final
 
+Se hace el conteo de los registros liego de concatenar nuevamente la información de los distintos años.
+
 ```{r}
 # Asegurar que cada dataset tenga su columna YEAR
 datos_2022 <- datos_2022 %>% mutate(YEAR = 2022)
@@ -578,33 +625,12 @@ head(resumen_nulos_wide, 15)  # formato comparativo
 
 ```{r}
 head(datos_2023, 50)
-
 ```
 
 # CSV FINAL
 
-Luego de toda la limpieza, felizmente tenemos los datos en un solo csv
+Para finalizar el proceso de limpieza y validación de cantidad de datos se hace la escritura de la base de datos actualizada, con todos los años seleccionados para la solución a la situación problema.
 
 ```{r}
 write_csv(datos_all, "data/data2022-2025.csv")
 ```
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
