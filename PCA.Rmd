@@ -122,6 +122,33 @@ round(cpR$eig,3)
 ```
 
 ```{r}
+library(factoextra)
+library(ggplot2)
+
+# Supongamos que tus resultados de PCA están en cpR (princomp)
+# y quieres graficar los loadings de las 4 primeras dimensiones
+
+# Extraer loadings
+loadings <- as.data.frame(cpR$loadings[, 1:4])
+loadings$variable <- rownames(loadings)
+
+# Biplot para Dim1 vs Dim2
+fviz_pca_var(cpR, axes = c(1,2),
+             col.var = "contrib", # color por contribución
+             gradient.cols = c("blue","gold","red"),
+             repel = TRUE) +
+  ggtitle("Biplot PCA: Dim 1 vs Dim 2")
+
+# Biplot para Dim3 vs Dim4
+fviz_pca_var(cpR, axes = c(3,4),
+             col.var = "contrib",
+             gradient.cols = c("blue","gold","red"),
+             repel = TRUE) +
+  ggtitle("Biplot PCA: Dim 3 vs Dim 4")
+
+```
+
+```{r}
 install.packages("psych")
 ```
 ```{r}
@@ -282,7 +309,178 @@ m <- lm(sqrt(O3) ~ PC1 + PC2 +PC3 +PC4, data = dat_lm)
 par(mfrow = c(2,2))
 plot(m)
 summary(m)
+
 ```
+
+```{r}
+library(caret)
+
+# 1️⃣ Asegurarnos que la variable respuesta exista como factor
+dat_lm$O3_categoria <- factor(dat_lm$O3_categoria,
+                              levels = c("Excelente","Aceptable","Malo"))
+
+# 2️⃣ Separar train y test (70%-30%)
+set.seed(123)
+train_index <- createDataPartition(dat_lm$O3_categoria, p = 0.7, list = FALSE)
+train <- dat_lm[train_index, ]
+test <- dat_lm[-train_index, ]
+
+# 3️⃣ Ajustar el modelo sobre el conjunto de train
+m <- lm(sqrt(O3) ~ PC1 + PC2 + PC3 + PC4, data = train)
+
+# 4️⃣ Diagnóstico del modelo
+par(mfrow = c(2,2))
+plot(m)
+summary(m)
+
+# 5️⃣ Predecir O3 en test
+test$O3_pred_sqrt <- predict(m, newdata = test)
+
+# 6️⃣ Revertir la transformación sqrt
+test$O3_pred <- test$O3_pred_sqrt^2
+
+# 7️⃣ Convertir la predicción continua en categorías
+test$O3_categoria_pred <- cut(test$O3_pred,
+                              breaks = c(-Inf, 58, 90, Inf),
+                              labels = c("Excelente","Aceptable","Malo"))
+
+# 8️⃣ Asegurarnos de los factores con los mismos niveles
+test$O3_categoria_pred <- factor(test$O3_categoria_pred,
+                                levels = c("Excelente","Aceptable","Malo"))
+
+# 9️⃣ Matriz de confusión y métricas
+conf_matrix <- confusionMatrix(test$O3_categoria_pred, test$O3_categoria)
+print(conf_matrix)
+
+```
+
+# Parte de la evaluacion del modelo
+
+```{r}
+library(caret)
+library(dplyr)
+
+# 1️⃣ Factorizar la variable respuesta
+dat_lm$O3_categoria <- factor(dat_lm$O3_categoria,
+                              levels = c("Excelente","Aceptable","Malo"))
+
+# 2️⃣ Crear pesos inversos a la frecuencia de cada clase
+weights_df <- dat_lm %>%
+  group_by(O3_categoria) %>%
+  summarise(freq = n()) %>%
+  mutate(weight = max(freq) / freq)
+
+# Unir pesos al dataset
+dat_lm <- dat_lm %>%
+  left_join(weights_df %>% select(O3_categoria, weight), by = "O3_categoria")
+
+# 3️⃣ Separar train y test (70%-30%)
+set.seed(123)
+train_index <- createDataPartition(dat_lm$O3_categoria, p = 0.7, list = FALSE)
+train <- dat_lm[train_index, ]
+test <- dat_lm[-train_index, ]
+
+# 4️⃣ Ajustar el modelo ponderado
+m <- lm(sqrt(O3) ~ PC1 + PC2 + PC3 + PC4, data = train, weights = weight)
+
+# 5️⃣ Diagnóstico del modelo
+par(mfrow = c(2,2))
+plot(m)
+summary(m)
+
+# 6️⃣ Predecir O3 en test
+test$O3_pred_sqrt <- predict(m, newdata = test)
+
+# 7️⃣ Revertir la transformación sqrt
+test$O3_pred <- test$O3_pred_sqrt^2
+
+# 8️⃣ Convertir predicción continua en categorías
+test$O3_categoria_pred <- cut(test$O3_pred,
+                              breaks = c(-Inf, 58, 90, Inf),
+                              labels = c("Excelente","Aceptable","Malo"))
+
+# 9️⃣ Asegurarnos que los factores tengan los mismos niveles
+test$O3_categoria_pred <- factor(test$O3_categoria_pred,
+                                levels = c("Excelente","Aceptable","Malo"))
+
+# 🔟 Matriz de confusión
+conf_matrix <- confusionMatrix(test$O3_categoria_pred, test$O3_categoria)
+print(conf_matrix)
+
+```
+
+
+```{r}
+library(caret)
+library(dplyr)
+
+# 1️⃣ Factorizar la variable respuesta
+dat_lm$O3_categoria <- factor(dat_lm$O3_categoria,
+                              levels = c("Excelente","Aceptable","Malo"))
+
+# 2️⃣ Crear pesos inversos a la frecuencia de cada clase
+weights_df <- dat_lm %>%
+  group_by(O3_categoria) %>%
+  summarise(freq = n()) %>%
+  mutate(weight = max(freq) / freq)
+
+# 3️⃣ Agregar la columna weight al dataset original
+dat_lm <- dat_lm %>%
+  left_join(weights_df %>% select(O3_categoria, weight), by = "O3_categoria")
+
+# Comprobar que existe
+head(dat_lm[, c("O3_categoria", "weight")])
+
+# 4️⃣ Configurar validación cruzada 10-fold
+set.seed(123)
+folds <- createFolds(dat_lm$O3_categoria, k = 10, list = TRUE)
+
+# Crear vector para almacenar resultados
+results <- data.frame(O3_real = factor(levels(dat_lm$O3_categoria)[0]),
+                      O3_pred = factor(levels(dat_lm$O3_categoria)[0]))
+
+# 5️⃣ Loop de CV
+for(i in 1:10){
+  test_idx <- folds[[i]]
+  train <- dat_lm[-test_idx, ]
+  test <- dat_lm[test_idx, ]
+  
+  # Ajustar modelo ponderado (weight existe dentro de train)
+  m <- lm(sqrt(O3) ~ PC1 + PC2 + PC3 + PC4, data = train, weights = train$weight)
+  
+  # Predecir O3 en test
+  test$O3_pred_sqrt <- predict(m, newdata = test)
+  test$O3_pred <- test$O3_pred_sqrt^2
+  
+  # Convertir predicción a categorías
+  test$O3_categoria_pred <- cut(test$O3_pred,
+                                breaks = c(-Inf, 58, 90, Inf),
+                                labels = c("Excelente","Aceptable","Malo"))
+  
+  # Forzar niveles iguales
+  test$O3_categoria_pred <- factor(test$O3_categoria_pred,
+                                   levels = levels(dat_lm$O3_categoria))
+  
+  # Guardar resultados
+  results <- rbind(results, 
+                   data.frame(O3_real = test$O3_categoria, 
+                              O3_pred = test$O3_categoria_pred))
+}
+
+# Quitar la fila inicial vacía
+results <- results[-1, ]
+
+# 6️⃣ Matriz de confusión final
+conf_matrix <- confusionMatrix(results$O3_pred, results$O3_real)
+print(conf_matrix)
+
+```
+
+```{r}
+dat_lm
+round(cor(dat_lm%>%select(-O3_categoria, -O3_categoria_pred)),3)
+```
+
 ```{r}
 library(lmtest)
 bptest(m)

@@ -1,0 +1,218 @@
+---
+title: "Clasificación_NTE2"
+author: "Valeria Arciga Valencia"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+df <- read.csv("DATA_final.csv")
+
+df_NTE2 <- df %>% filter(LOCATION == "NTE2") %>% filter(Hour >= 6)
+NTE2=df_NTE2[, c("O3","CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+head(df_NTE2)
+```
+
+```{r}
+library(dplyr)
+
+NTE2 <- NTE2 %>%
+  mutate(O3_categoria = case_when(
+    O3 <= 58 ~ "Excelente",
+    O3 > 58 & O3 <= 90 ~ "Aceptable",
+    O3 > 90 ~ "Malo"
+  ))
+
+NTE2 %>%
+  group_by(O3_categoria) %>%
+  summarise(Conteo = n())
+
+head(NTE2)
+```
+
+```{r}
+str(NTE2)
+
+```
+
+Dado que el porcentaje de los registros que se tienen se obtiene que la clase Excelente tiene más del 90% de registros de riesgo dentro de la NOM.
+Después de la generación de la nueva columna de información donde se clasifican los valores de ozono, se procede a realizar el análisis factorial de esta información.
+
+```{r}
+library(psych)
+
+library(stats)
+X <- NTE2[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+R = cor(X)
+K = KMO(R)
+K$MSA
+K$MSAi
+```  
+El valor KMC se puede interpretar como aceptable, por lo que se puede aplicar un análisis factorial exploratorio.
+
+En cuanto a KMO propio, se obtiene que los que tienen mejor adecuación con SO2, CO, NOX, mientras que RAINF y PRS son las peores candidatas para el análisis factorial.
+
+```{r}
+Y <- NTE2$O3_categoria
+Y <- as.factor(Y)
+```
+
+
+
+```{r}
+library(performance)
+
+# Prueba de esfericidad de Bartlett
+b <- check_sphericity_bartlett(R)
+
+# Resultados
+b$chisq   # estadístico Chi-cuadrada
+b$dof     # grados de libertad
+b$p       # valor p
+```
+
+El valor p es menor a 0.05, por lo que se rechaza la hipótesis nula y se concluye que las variables están correlacionadas y son adecuadas para el análisis factorial.
+
+
+Se hace un escalamiento de las variables necesario para el análisis factorial.
+```{r}
+Xscaled <- scale(X)
+
+library(psych)
+library(factoextra)
+```
+
+```{r}
+# Matriz de correlación
+M <- cor(Xscaled)
+
+# Scree plot
+fa.parallel(Xscaled, fa="fa", n.iter=100, main="Scree plot")
+```
+
+Realización de análisis factorial
+
+```{r}
+fa_result <- fa(Xscaled, nfactors=3, rotate="varimax", fm="ml") 
+print(fa_result, cut=0.4)
+```
+
+```{r}
+factor_scores <- factor.scores(Xscaled, fa_result, method="regression")$scores
+head(factor_scores)
+```
+
+### Comparación con PCA
+
+```{r}
+cpR <- princomp(Xscaled, cor = TRUE, scores = TRUE)
+summary(cpR)
+```
+
+## Desarrollo de modelo de regresión logística multinomial
+```{r}
+# Cargar la librería
+library(nnet)
+
+Y <- as.factor(NTE2$O3_categoria)
+```
+
+
+```{r}
+library(caret)
+```
+
+## Ajuste con pesos
+
+```{r}
+
+library(dplyr)
+
+# Calcular frecuencia por clase
+freq <- NTE2 %>% 
+  group_by(O3_categoria) %>% 
+  summarise(n = n())
+
+# Calcular pesos inversos a la frecuencia
+freq <- freq %>%
+  mutate(weight = max(n)/n)
+
+# Unir los pesos al dataset original
+NTE2 <- NTE2 %>%
+  left_join(freq %>% select(O3_categoria, weight), by = "O3_categoria")
+
+```
+
+
+#Versión
+
+```{r}
+library(psych)
+
+# Realizar análisis factorial
+fa_result <- fa(Xscaled, nfactors = 3, rotate = "varimax", fm = "ml")
+
+# Obtener scores factoriales
+factor_scores <- factor.scores(Xscaled, fa_result, method = "regression")$scores
+
+# Convertir a data.frame
+factor_scores <- as.data.frame(factor_scores)
+
+# Añadir la variable respuesta
+factor_scores$O3_categoria <- NTE2$O3_categoria
+```
+
+Verificación de existencia de 3 categorías
+
+```{r}
+table(factor_scores$O3_categoria)
+```
+Verificación de nombres de columnas
+
+```{r}
+colnames(factor_scores)
+```
+
+
+```{r}
+library(dplyr)
+
+# Calcular pesos inversos a la frecuencia
+factor_scores <- factor_scores %>%
+  group_by(O3_categoria) %>%
+  mutate(weight = max(n())/n()) %>%
+  ungroup()
+```
+
+Partición train y test
+```{r}
+library(caret)
+
+set.seed(123)
+
+train_index <- createDataPartition(factor_scores$O3_categoria, p = 0.7, list = FALSE)
+train <- factor_scores[train_index, ]
+test <- factor_scores[-train_index, ]
+```
+
+Regresión multinomial
+```{r}
+library(nnet)
+
+# Asegurarnos que la variable respuesta sea factor
+train$O3_categoria <- as.factor(train$O3_categoria)
+
+# Modelo multinomial con ponderaciones
+model <- multinom(O3_categoria ~ ML1 + ML2 + ML3, data = train, weights = weight)
+
+summary(model)
+```
+
+
+```{r}
+# Predecir en test
+pred <- predict(model, newdata = test)
+
+# Matriz de confusión
+confusionMatrix(pred, test$O3_categoria)
+```
