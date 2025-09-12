@@ -1,0 +1,170 @@
+---
+title: "Clasificación_NE"
+author: "Valeria Arciga Valencia"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+#Librerias
+
+```{r}
+library(dplyr)
+library(psych)
+library(factoextra)
+library(performance)
+library(caret)
+library(nnet)
+library(smotefamily)
+
+set.seed(123)
+```
+
+# Carga de datos y filtración de información
+
+```{r}
+df <- read.csv("DATA_final.csv")
+
+# Filtrar LOCATION NTE2 y horas >= 6, y seleccionar variables necesarias
+NE_full <- df %>%
+  filter(LOCATION == "NE", Hour >= 6) %>%
+  select(O3, CO, NOX, PM10, PM2.5, PRS, RAINF, RH, SO2, SR, TOUT)
+```
+
+
+# Creación de categorico
+
+```{r}
+NE_full <- NE_full %>%
+  mutate(O3_categoria = case_when(
+    O3 <= 58               ~ "Excelente",
+    O3 > 58 & O3 <= 90     ~ "Aceptable",
+    O3 > 90                ~ "Malo"
+  ))
+
+NE_full$O3_categoria <- factor(NE_full$O3_categoria, levels = c("Excelente","Aceptable","Malo"))
+```
+
+## Ver distribucion
+
+```{r}
+print(prop.table(table(NE_full$O3_categoria)) * 100)
+print(table(NE_full$O3_categoria))
+```
+
+Se observa que hay un gran desbalance de clases entre los tres criterios determinados por la NOM.
+
+# Análisis Factorial
+
+```{r}
+X <- NE_full[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+
+R <- cor(X)
+K <- KMO(R)
+cat("KMO global:", K$MSA, "\n")
+print(K$MSAi)
+```
+El KMO global es 0.68, lo que indica que los datos son adecuados para el análisis factorial.
+
+## Prueba Bartlett
+
+```{r}
+b <- check_sphericity_bartlett(R)
+cat("Bartlett chi2:", b$chisq, " df:", b$dof, " p:", b$p, "\n")
+```
+La prueba de esfericidad de Bartlett es significativa (p < 0.05), lo que indica que las variables están correlacionadas y son adecuadas para el análisis factorial.
+
+
+# Escalamiento y selección de factores
+```{r}
+Xscaled <- scale(X)
+fa.parallel(Xscaled, fa = "fa", n.iter = 100, main = "Scree plot (parallel)")
+```
+Basado en el análisis paralelo, se seleccionan 4 factores para la predicción del nivel de riesgo de O3.
+
+```{r}
+fa_result <- fa(Xscaled, nfactors = 4, rotate = "varimax", fm = "ml")
+fs <- factor.scores(Xscaled, fa_result, method = "regression")$scores
+factor_scores <- as.data.frame(fs)
+```
+
+
+Ver nombres de columnas de factores
+```{r}
+print(colnames(factor_scores))
+```
+## Añadir variable de respuesta
+
+```{r}
+factor_scores$O3_categoria <- NE_full$O3_categoria
+factor_scores$O3_categoria <- as.factor(factor_scores$O3_categoria)
+```
+
+## SMOTE ligero
+
+```{r}
+X_factors <- factor_scores %>% select(ML1, ML2, ML3, ML4)
+y <- factor_scores$O3_categoria
+
+```
+
+```{r}
+# Combinar en un solo dataframe
+df_model <- cbind(X, O3_categoria = y)
+```
+
+```{r}
+excelente <- factor_scores %>% filter(O3_categoria == "Excelente")
+aceptable <- factor_scores %>% filter(O3_categoria == "Aceptable")
+malo      <- factor_scores %>% filter(O3_categoria == "Malo")
+
+# Reducir la clase "Excelente" a un tamaño más cercano a las minoritarias
+set.seed(123)
+excelente_down <- excelente %>% sample_n(nrow(aceptable) * 3)  # 3x la clase "Aceptable"
+```
+
+```{r}
+# Combinar todas las clases
+factor_scores_down <- bind_rows(excelente_down, aceptable, malo)
+
+# Ver nueva distribución
+table(factor_scores_down$O3_categoria)
+prop.table(table(factor_scores_down$O3_categoria)) * 100
+```
+
+
+
+```{r}
+
+# Combinar todas las clases
+factor_scores_down <- bind_rows(excelente_down, aceptable, malo)
+
+# Ver nueva distribución
+table(factor_scores_down$O3_categoria)
+prop.table(table(factor_scores_down$O3_categoria)) * 100
+```
+
+## Partición de train y test
+
+```{r}
+train_index <- createDataPartition(factor_scores_down$O3_categoria, p = 0.7, list = FALSE)
+train <- factor_scores_down[train_index, ]
+test  <- factor_scores_down[-train_index, ]
+```
+
+
+# Modelo multinomial
+
+```{r}
+model <- multinom(O3_categoria ~ ML1 + ML2 + ML3 + ML4, data = train)
+
+summary(model)
+```
+
+```{r}
+# Predicción
+pred <- predict(model, newdata = test)
+
+# Matriz de confusión
+confusionMatrix(pred, test$O3_categoria)
+```
+
