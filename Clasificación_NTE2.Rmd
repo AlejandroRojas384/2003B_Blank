@@ -35,23 +35,6 @@ str(NTE2)
 
 ```
 
-```{r}
-library(ggplot2)
-
-ggplot(NTE2, aes(x = O3_categoria)) +
-  geom_bar(fill = c("green", "goldenrod1", "red")) +
-  labs(title = "Distribución de O3 por categoría",
-       x = "Categoría O3",
-       y = "Conteo") +
-  theme_minimal()
-
-NTE2 %>%
-  group_by(O3_categoria) %>%
-  summarise(Conteo = n()) %>%
-  mutate(Porcentaje = round(Conteo / sum(Conteo) * 100, 2))
-
-```
-
 Dado que el porcentaje de los registros que se tienen se obtiene que la clase Excelente tiene más del 90% de registros de riesgo dentro de la NOM.
 Después de la generación de la nueva columna de información donde se clasifican los valores de ozono, se procede a realizar el análisis factorial de esta información.
 
@@ -123,17 +106,7 @@ head(factor_scores)
 ```{r}
 cpR <- princomp(Xscaled, cor = TRUE, scores = TRUE)
 summary(cpR)
-```
 
-
-```{R}
-library(factoextra)
-
-# Scree plot
-fviz_screeplot(fa_result)
-
-# Biplot PCA (opcional)
-fviz_pca_biplot(cpR)
 ```
 
 ## Desarrollo de modelo de regresión logística multinomial
@@ -168,38 +141,3 @@ multinom_model <- multinom(train_Y ~ ., data = train_X)
 # Resumen
 summary(multinom_model)
 ```
-
-
-
-
-
-```{r}
-library(dplyr)
-library(caret)
-library(nnet)  # Para regresión logística multinomial
-
-# Convertir la variable objetivo en factor ordenado
-NTE2$O3_categoria <- factor(NTE2$O3_categoria,
-                          levels = c("Excelente", "Aceptable", "Malo"),
-                          ordered = TRUE)
-
-# Separar datos en entrenamiento (80%) y prueba (20%)
-train_index <- createDataPartition(NTE2$O3_categoria, p = 0.8, list = FALSE)
-train_data <- NTE2[train_index, ]
-test_data  <- NTE2[-train_index, ]
-```
-
-```{r}
-modelo_log <- multinom(O3_categoria ~ ., data = train_data)
-```
-
-```{r}
-summary(modelo_log)
-```
-
-```{r}
-predicciones <- predict(modelo_log, newdata = test_data)
-# Matriz de confusión
-confusionMatrix(predicciones, test_data$O3_categoria)
-```
-
