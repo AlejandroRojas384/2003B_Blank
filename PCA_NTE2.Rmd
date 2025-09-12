@@ -5,6 +5,13 @@ date: "`r Sys.Date()`"
 output: html_document
 ---
 
+```{r}
+library(stats)
+library(dplyr)
+library(FactoMineR)
+library(factoextra)
+```
+
 # Extraccion de datos
 
 ```{r}
@@ -39,7 +46,7 @@ round(cor(df_NTE2[, c("CO","NOX","O3","PM10","PM2.5","PRS","RAINF","RH","SO2","S
 ## PCA con matriz de correlaciones
 
 ```{r}
-library(stats)
+
 X <- NTE2[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
 
 cpR <- princomp(X, cor = TRUE,  scores = TRUE)
@@ -65,9 +72,7 @@ summary(cpR)
 ### Ejecucion del PCA para CE
 
 ```{r}
-library(FactoMineR)
-library(factoextra)
-datos <- NTE2
+datos <- X
 cpR = PCA(datos,scale.unit=T)
 ```
 
@@ -83,15 +88,6 @@ fviz_contrib(cpR, choice = "var")
 ### Resumen de un modelo con las
 
 ```{r}
-summary(lm(O3 ~ TOUT + RH + SR, data=NTE2))
-```
-
-```{r}
-CE[c(24092,24093,24094,24095,24096),]
-```
-
-```{r}
-library(dplyr)
 library(tidyr)
 library(tibble)
 contrib_mat <- as.data.frame(cpR$var$contrib)  # % de contribución por Dim.
