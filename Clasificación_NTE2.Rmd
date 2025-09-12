@@ -91,6 +91,7 @@ fa.parallel(Xscaled, fa="fa", n.iter=100, main="Scree plot")
 ```
 
 Realización de análisis factorial
+
 ```{r}
 fa_result <- fa(Xscaled, nfactors=3, rotate="varimax", fm="ml") 
 print(fa_result, cut=0.4)
@@ -106,7 +107,6 @@ head(factor_scores)
 ```{r}
 cpR <- princomp(Xscaled, cor = TRUE, scores = TRUE)
 summary(cpR)
-
 ```
 
 ## Desarrollo de modelo de regresión logística multinomial
@@ -120,24 +120,99 @@ Y <- as.factor(NTE2$O3_categoria)
 
 ```{r}
 library(caret)
+```
 
-predictors <- as.data.frame(factor_scores) #FACTORES
-train_index <- createDataPartition(Y, p = 0.7, list = FALSE)
+## Ajuste con pesos
 
-train_X <- predictors[train_index, ]
-test_X  <- predictors[-train_index, ]
+```{r}
 
-train_Y <- Y[train_index]
-test_Y  <- Y[-train_index]
+library(dplyr)
+
+# Calcular frecuencia por clase
+freq <- NTE2 %>% 
+  group_by(O3_categoria) %>% 
+  summarise(n = n())
+
+# Calcular pesos inversos a la frecuencia
+freq <- freq %>%
+  mutate(weight = max(n)/n)
+
+# Unir los pesos al dataset original
+NTE2 <- NTE2 %>%
+  left_join(freq %>% select(O3_categoria, weight), by = "O3_categoria")
 
 ```
 
 
-## Regresión Multinomial
-```{r}
-# Ajustar modelo
-multinom_model <- multinom(train_Y ~ ., data = train_X)
+#Versión
 
-# Resumen
-summary(multinom_model)
+```{r}
+library(psych)
+
+# Realizar análisis factorial
+fa_result <- fa(Xscaled, nfactors = 3, rotate = "varimax", fm = "ml")
+
+# Obtener scores factoriales
+factor_scores <- factor.scores(Xscaled, fa_result, method = "regression")$scores
+
+# Convertir a data.frame
+factor_scores <- as.data.frame(factor_scores)
+
+# Añadir la variable respuesta
+factor_scores$O3_categoria <- NTE2$O3_categoria
+```
+
+Verificación de existencia de 3 categorías
+
+```{r}
+table(factor_scores$O3_categoria)
+```
+Verificación de nombres de columnas
+
+```{r}
+colnames(factor_scores)
+```
+
+
+```{r}
+library(dplyr)
+
+# Calcular pesos inversos a la frecuencia
+factor_scores <- factor_scores %>%
+  group_by(O3_categoria) %>%
+  mutate(weight = max(n())/n()) %>%
+  ungroup()
+```
+
+Partición train y test
+```{r}
+library(caret)
+
+set.seed(123)
+
+train_index <- createDataPartition(factor_scores$O3_categoria, p = 0.7, list = FALSE)
+train <- factor_scores[train_index, ]
+test <- factor_scores[-train_index, ]
+```
+
+Regresión multinomial
+```{r}
+library(nnet)
+
+# Asegurarnos que la variable respuesta sea factor
+train$O3_categoria <- as.factor(train$O3_categoria)
+
+# Modelo multinomial con ponderaciones
+model <- multinom(O3_categoria ~ ML1 + ML2 + ML3, data = train, weights = weight)
+
+summary(model)
+```
+
+
+```{r}
+# Predecir en test
+pred <- predict(model, newdata = test)
+
+# Matriz de confusión
+confusionMatrix(pred, test$O3_categoria)
 ```
