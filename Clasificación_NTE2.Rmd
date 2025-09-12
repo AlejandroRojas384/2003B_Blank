@@ -1,0 +1,205 @@
+---
+title: "Clasificación_NTE2"
+author: "Valeria Arciga Valencia"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+df <- read.csv("DATA_final.csv")
+
+df_NTE2 <- df %>% filter(LOCATION == "NTE2") %>% filter(Hour >= 6)
+NTE2=df_NTE2[, c("O3","CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+head(df_NTE2)
+```
+
+```{r}
+library(dplyr)
+
+NTE2 <- NTE2 %>%
+  mutate(O3_categoria = case_when(
+    O3 <= 58 ~ "Excelente",
+    O3 > 58 & O3 <= 90 ~ "Aceptable",
+    O3 > 90 ~ "Malo"
+  ))
+
+NTE2 %>%
+  group_by(O3_categoria) %>%
+  summarise(Conteo = n())
+
+head(NTE2)
+```
+
+```{r}
+str(NTE2)
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(NTE2, aes(x = O3_categoria)) +
+  geom_bar(fill = c("green", "goldenrod1", "red")) +
+  labs(title = "Distribución de O3 por categoría",
+       x = "Categoría O3",
+       y = "Conteo") +
+  theme_minimal()
+
+NTE2 %>%
+  group_by(O3_categoria) %>%
+  summarise(Conteo = n()) %>%
+  mutate(Porcentaje = round(Conteo / sum(Conteo) * 100, 2))
+
+```
+
+Dado que el porcentaje de los registros que se tienen se obtiene que la clase Excelente tiene más del 90% de registros de riesgo dentro de la NOM.
+Después de la generación de la nueva columna de información donde se clasifican los valores de ozono, se procede a realizar el análisis factorial de esta información.
+
+```{r}
+library(psych)
+
+library(stats)
+X <- NTE2[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+R = cor(X)
+K = KMO(R)
+K$MSA
+K$MSAi
+```  
+El valor KMC se puede interpretar como aceptable, por lo que se puede aplicar un análisis factorial exploratorio.
+
+En cuanto a KMO propio, se obtiene que los que tienen mejor adecuación con SO2, CO, NOX, mientras que RAINF y PRS son las peores candidatas para el análisis factorial.
+
+```{r}
+Y <- NTE2$O3_categoria
+Y <- as.factor(Y)
+```
+
+
+
+```{r}
+library(performance)
+
+# Prueba de esfericidad de Bartlett
+b <- check_sphericity_bartlett(R)
+
+# Resultados
+b$chisq   # estadístico Chi-cuadrada
+b$dof     # grados de libertad
+b$p       # valor p
+```
+
+El valor p es menor a 0.05, por lo que se rechaza la hipótesis nula y se concluye que las variables están correlacionadas y son adecuadas para el análisis factorial.
+
+
+Se hace un escalamiento de las variables necesario para el análisis factorial.
+```{r}
+Xscaled <- scale(X)
+
+library(psych)
+library(factoextra)
+```
+
+```{r}
+# Matriz de correlación
+M <- cor(Xscaled)
+
+# Scree plot
+fa.parallel(Xscaled, fa="fa", n.iter=100, main="Scree plot")
+```
+
+Realización de análisis factorial
+```{r}
+fa_result <- fa(Xscaled, nfactors=3, rotate="varimax", fm="ml") 
+print(fa_result, cut=0.4)
+```
+
+```{r}
+factor_scores <- factor.scores(Xscaled, fa_result, method="regression")$scores
+head(factor_scores)
+```
+
+### Comparación con PCA
+
+```{r}
+cpR <- princomp(Xscaled, cor = TRUE, scores = TRUE)
+summary(cpR)
+```
+
+
+```{R}
+library(factoextra)
+
+# Scree plot
+fviz_screeplot(fa_result)
+
+# Biplot PCA (opcional)
+fviz_pca_biplot(cpR)
+```
+
+## Desarrollo de modelo de regresión logística multinomial
+```{r}
+# Cargar la librería
+library(nnet)
+
+Y <- as.factor(NTE2$O3_categoria)
+```
+
+
+```{r}
+library(caret)
+
+predictors <- as.data.frame(factor_scores) #FACTORES
+train_index <- createDataPartition(Y, p = 0.7, list = FALSE)
+
+train_X <- predictors[train_index, ]
+test_X  <- predictors[-train_index, ]
+
+train_Y <- Y[train_index]
+test_Y  <- Y[-train_index]
+
+```
+
+
+## Regresión Multinomial
+```{r}
+# Ajustar modelo
+multinom_model <- multinom(train_Y ~ ., data = train_X)
+
+# Resumen
+summary(multinom_model)
+```
+
+
+
+
+
+```{r}
+library(dplyr)
+library(caret)
+library(nnet)  # Para regresión logística multinomial
+
+# Convertir la variable objetivo en factor ordenado
+NTE2$O3_categoria <- factor(NTE2$O3_categoria,
+                          levels = c("Excelente", "Aceptable", "Malo"),
+                          ordered = TRUE)
+
+# Separar datos en entrenamiento (80%) y prueba (20%)
+train_index <- createDataPartition(NTE2$O3_categoria, p = 0.8, list = FALSE)
+train_data <- NTE2[train_index, ]
+test_data  <- NTE2[-train_index, ]
+```
+
+```{r}
+modelo_log <- multinom(O3_categoria ~ ., data = train_data)
+```
+
+```{r}
+summary(modelo_log)
+```
+
+```{r}
+predicciones <- predict(modelo_log, newdata = test_data)
+# Matriz de confusión
+confusionMatrix(predicciones, test_data$O3_categoria)
+```
+
