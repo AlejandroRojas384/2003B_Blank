@@ -408,7 +408,101 @@ conf_matrix <- confusionMatrix(test$O3_categoria_pred, test$O3_categoria)
 print(conf_matrix)
 
 ```
+```{r}
+ggplot(dat_lm, aes(x = O3_categoria, fill = O3_categoria)) +
+  geom_bar(aes(y = (..count..)/sum(..count..))) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Proporción de clases de O3", 
+       x = "Categoría O3", y = "Porcentaje") +
+  theme_minimal() +
+  theme(legend.position = "none")
 
+```
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Datos de coeficientes (sin intercepto)
+coef_df <- data.frame(
+  PC = c("PC1", "PC2", "PC3", "PC4"),
+  Coef = c(0.962515, 0.324901, 0.189039, -0.303453),
+  Variables = c("NOX, PM2.5", "TOUT, RH", "RAINF, SO2", "CO, PRS")
+)
+
+# Agregar magnitud para color
+coef_df <- coef_df %>%
+  mutate(Magnitude = abs(Coef),
+         Direction = ifelse(Coef > 0, "Positivo", "Negativo"))
+
+# Barplot con color según magnitud y dirección
+ggplot(coef_df, aes(x = reorder(PC, Coef), y = Coef, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("Positivo" = "steelblue", "Negativo" = "tomato")) +
+  geom_text(aes(label = Variables), hjust = ifelse(coef_df$Coef > 0, -0.05, 1.05)) +
+  labs(x = "Componente", y = "Coeficiente", fill = "Dirección",
+       title = "Coeficientes de los PCs y su interpretación") +
+  theme_minimal()
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Crear un dataframe para visualización
+dat_plot <- dat_lm %>%
+  select(O3) %>%
+  mutate(O3_sqrt = sqrt(O3)) %>%
+  pivot_longer(cols = c(O3, O3_sqrt), names_to = "Tipo", values_to = "Valor")
+
+# Histograma comparativo
+ggplot(dat_plot, aes(x = Valor, fill = Tipo)) +
+  geom_histogram(alpha = 0.6, position = "identity", bins = 50) +
+  facet_wrap(~Tipo, scales = "free") +
+  labs(title = "Distribución de O3 antes y después de sqrt()",
+       x = "Valor de O3", y = "Frecuencia") +
+  theme_minimal()
+
+```
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Suponiendo que tienes results$O3_real y results$O3_pred
+conf_mat <- table(results$O3_real, results$O3_pred)
+
+# Convertir a dataframe para ggplot
+conf_df <- as.data.frame(conf_mat)
+colnames(conf_df) <- c("Actual","Predicted","Count")
+
+ggplot(conf_df, aes(x=Predicted, y=Actual, fill=Count)) +
+  geom_tile(color="white") +
+  geom_text(aes(label=Count), color="black", size=5) +
+  scale_fill_gradient(low="lightblue", high="darkblue") +
+  theme_minimal() +
+  labs(title="Matriz de Confusión del Modelo")
+
+```
+```{r}
+ggplot(test, aes(x=O3_categoria, y=O3_pred, fill=O3_categoria)) +
+  geom_boxplot(alpha=0.7) +
+  theme_minimal() +
+  labs(y="O3 Predicho", x="Categoría Real", title="Distribución de Predicciones por Categoría")
+
+```
+```{r}
+ggplot(test, aes(x=O3, y=O3_pred)) +
+  geom_point(alpha=0.3) +
+  geom_abline(slope=1, intercept=0, color="red", linetype="dashed") +
+  theme_minimal() +
+  labs(x="O3 Observado", y="O3 Predicho", 
+       title="Predicciones vs Observado")
+
+```
 
 ```{r}
 library(caret)
