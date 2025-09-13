@@ -1,0 +1,674 @@
+---
+title: "NE2"
+author: "Valeria Arciga Valencia"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Extraccion de datos
+
+```{r}
+install.packages("dplyr")
+library(dplyr)
+```
+
+```{r}
+df <- read.csv("DATA_final.csv")
+head(df)
+
+df_NE   <- df %>% filter(LOCATION == "NE") %>% filter(Hour >= 6)
+```
+
+Verificamos cantidad por dataframe
+
+```{r}
+sapply(list(NE = df_NE), nrow)
+```
+
+# Definimos otro datagrame pero solo con variables de contaminante y ambiental
+
+```{r}
+NE=df_NE[, c("O3","CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+```
+
+## PCA para el centro con matriz de varianza y matriz de correlaciones
+
+```{r}
+library(stats)
+X <- NE[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+
+cpS <- princomp(X, cor = FALSE, scores = TRUE)
+cpR <- princomp(X, cor = TRUE,  scores = TRUE)
+
+par(mfrow = c(1,2))
+biplot(cpS, main = "PCA con S")
+biplot(cpR, main = "PCA con R")
+par(mfrow = c(1,1))
+
+# Scores (PC1, PC2)
+scoresS <- cpS$scores[,1:2]
+scoresR <- cpR$scores[,1:2]
+
+par(mfrow = c(1,2))
+plot(scoresS, pch=19, main="Scores S (PC1–PC2)"); text(scoresS, labels=rownames(X), pos=3, cex=.7)
+plot(scoresR, pch=19, main="Scores R (PC1–PC2)"); text(scoresR, labels=rownames(X), pos=3, cex=.7)
+par(mfrow = c(1,1))
+
+# para ver datos atipicos que pase un umbral
+thr <- qchisq(.975, df = 2)
+which(mahalanobis(scoresS, colMeans(scoresS), cov(scoresS)) > thr)  
+which(mahalanobis(scoresR, colMeans(scoresR), cov(scoresR)) > thr) 
+
+summary(cpS); summary(cpR)
+
+
+```
+
+```{r}
+# install.packages("factoextra")
+```
+
+### Ejecucion del PCA para CE
+
+```{r}
+library(FactoMineR)
+library(factoextra)
+
+cpR = PCA(X,scale.unit=T)
+
+```
+
+### Graficos de PCA para CE por variable e individuo
+
+```{r}
+fviz_pca_ind(cpR, col.ind = "blue", addEllipses = TRUE, repel = FALSE)
+fviz_pca_var(cpR, col.var = "red", addEllipses = TRUE, repel = TRUE)
+fviz_screeplot(cpR)
+fviz_contrib(cpR, choice = "var", axes=1)
+```
+
+```{r}
+library(dplyr)
+library(tidyr)
+library(tibble)
+contrib_mat <- as.data.frame(cpR$var$contrib)  # % de contribución por Dim.
+cos2_mat    <- as.data.frame(cpR$var$cos2)     # calidad de representación
+loads_mat   <- as.data.frame(cpR$var$coord)    # “cargas”/correlaciones con PCs
+
+## 4) Ver “top-N” variables que más contribuyen a una dimensión
+DIM <- 1      # <<< pon aquí el número de componente (1, 2, 3, ...)
+TOP <- 12     # <<< cuántas variables listar
+top_dim <- contrib_mat %>%
+  rownames_to_column("variable") %>%
+  arrange(desc(.data[[paste0("Dim.", DIM)]])) %>%
+  slice_head(n = TOP)
+top_dim
+
+## 5) Contribución ACUMULADA en las primeras K dimensiones
+K <- 2  # <<< cambia K (p.ej., 2 o 3)
+contrib_total <- contrib_mat %>%
+  rownames_to_column("variable") %>%
+  mutate(total_1K = rowSums(across(paste0("Dim.", 1:K)))) %>%
+  arrange(desc(total_1K))
+head(contrib_total, 15)  # top 15 por aporte total en Dim.1..K
+
+## 6) Resumen de varianza explicada por dimensión
+round(cpR$eig,3)   
+```
+
+```{r}
+library(factoextra)
+library(ggplot2)
+
+# Supongamos que tus resultados de PCA están en cpR (princomp)
+# y quieres graficar los loadings de las 4 primeras dimensiones
+
+# Extraer loadings
+loadings <- as.data.frame(cpR$loadings[, 1:4])
+loadings$variable <- rownames(loadings)
+
+# Biplot para Dim1 vs Dim2
+fviz_pca_var(cpR, axes = c(1,2),
+             col.var = "contrib", # color por contribución
+             gradient.cols = c("blue","gold","red"),
+             repel = TRUE) +
+  ggtitle("Biplot PCA: Dim 1 vs Dim 2")
+
+# Biplot para Dim3 vs Dim4
+fviz_pca_var(cpR, axes = c(3,4),
+             col.var = "contrib",
+             gradient.cols = c("blue","gold","red"),
+             repel = TRUE) +
+  ggtitle("Biplot PCA: Dim 3 vs Dim 4")
+
+```
+
+```{r}
+#library(MVN)
+#mardia = mvn(X,subset = NULL,mvn_test = "mardia", scale = T)
+
+#mardia
+```
+
+```{r}
+library(psych)
+R<-cor(X)
+K <- KMO(R)
+K$MSA
+K$MSAi
+
+```
+
+```{r}
+modelo1 = fa(R, nfactors = 3, rotate = "none", fm = "mle")   # de máxima verosimilitud
+modelo2 = fa(R, nfactors = 3, rotate = "none", fm = "minres") # Modelo de mínimo residuo
+M1_commd = sort(modelo1$communality,decreasing = T)
+M2_commd= sort(modelo2$communality,decreasing = T)
+cbind(M1_commd,M2_commd)
+```
+
+```{r}
+scree(R)
+```
+
+```{r}
+library(GPArotation)
+rot = c("none", "varimax", "quartimax")
+
+bi_mod = function(tipo){
+biplot.psych(fa(X,nfactors = 2,fm="mle",rotate = tipo),main = "",col=c(2,3,4),pch = c(21,18))  }
+sapply(rot,bi_mod)
+```
+
+# Desde aqui a abajo
+
+```{r}
+## ==== Datos (target + predictores) ====
+y   <- NE$O3               
+dat <- na.omit(cbind(O3 = y, X))
+
+## ==== Train/Test rápido (80/20) ====
+set.seed(1)
+idx   <- sample.int(nrow(dat), floor(0.8*nrow(dat)))
+train <- dat[idx, ]
+test  <- dat[-idx, ]
+
+```
+
+```{r}
+# install.packages("plsy")
+```
+
+```{r}
+library(pls)
+
+pcr_cv  <- pcr(O3 ~ ., data = train, scale = TRUE, validation = "CV")
+best_k  <- which.min(RMSEP(pcr_cv, estimate = "CV")$val[1,1,-1])
+pcr_fit <- pcr(O3 ~ ., data = train, scale = TRUE, ncomp = best_k)
+
+pred_pcr <- predict(pcr_fit, newdata = test, ncomp = best_k)
+rmse_pcr <- sqrt(mean((test$O3 - pred_pcr)^2))
+best_k; rmse_pcr
+
+```
+
+```{r}
+k <- 4   # <-- empieza con 4; ajusta si quieres
+
+pc <- prcomp(train[ , -1], center = TRUE, scale. = TRUE)
+Xtr <- as.data.frame(predict(pc, train[ , -1])[, 1:k, drop = FALSE])
+fit <- lm(O3 ~ ., data = cbind(O3 = train$O3, Xtr))
+
+Xte <- as.data.frame(predict(pc, test[ , -1])[, 1:k, drop = FALSE])
+pred_lm <- predict(fit, newdata = Xte)
+rmse_lm <- sqrt(mean((test$O3 - pred_lm)^2))
+rmse_lm
+
+summary(fit)
+```
+
+```{r}
+m <- lm(O3 ~ ., data = dat)           # tu modelo
+Fs <- summary(m)$fstatistic
+F_value <- unname(Fs["value"])
+df1 <- unname(Fs["numdf"]); df2 <- unname(Fs["dendf"])
+p_value <- pf(F_value, df1, df2, lower.tail = FALSE)
+c(F = F_value, df1 = df1, df2 = df2, p = p_value)
+
+```
+
+```{r}
+anova(fit)
+```
+
+# De aqui se juntan los PCs y abajo los modelos
+
+```{r}
+## ==== 0) Datos: O3 como target + predictores CE ====
+# CE ya es: df_CE[, c("CO","NOX","PM10","PM2.5","PRS","RAINF","RH","SO2","SR","TOUT")]
+dat <- na.omit(cbind(O3 = df_NE$O3, NE))   # quita filas con NA
+
+## ==== 1) PCA en predictores y elección de k ====
+pc  <- prcomp(dat[ , -1], center = TRUE, scale. = TRUE)
+eig <- pc$sdev^2
+pct <- eig / sum(eig) * 100
+k   <- 4L   # << usa 4 (ajusta si quieres)
+
+# Scores PC1..PCk
+scores <- as.data.frame(predict(pc, dat[ , -1])[, 1:k, drop = FALSE])
+colnames(scores) <- paste0("PC", 1:k)
+
+## ==== 2) Modelo lineal con PCs ====
+dat_lm <- cbind(O3 = dat$O3, scores)
+m <- lm(O3 ~ ., data = dat_lm)
+
+## ==== 3) ANOVA Type I (secuencial; depende del orden) ====
+a_type1 <- anova(m)
+
+## ==== 4) Tests parciales (independientes del orden) ====
+d1 <- drop1(m, test = "F")   # quita 1 PC a la vez desde el modelo completo
+
+## R² parcial de cada PC (a partir del F parcial; df1=1)
+Fv  <- d1$"F value"[!is.na(d1$"F value")]
+df2 <- df.residual(m)
+partial_R2 <- setNames( (Fv)/(Fv + df2), rownames(d1)[!is.na(d1$"F value")] )
+
+## ==== 5) Comparación con modelo reducido (ej.: sin PC1) ====
+m_red <- update(m, . ~ . - PC1)
+cmp   <- anova(m_red, m)     # p<0.05 => PC1 aporta significativamente
+
+## ==== 6) Salidas útiles ====
+cat("Eigenvalues y % var (1..k):\n")
+print( round(cbind(eigenvalue = eig[1:k], pct_var = pct[1:k], pct_cum = cumsum(pct)[1:k]), 3) )
+
+cat("\nANOVA Type I (secuencial):\n"); print(a_type1)
+cat("\nTests parciales (drop1):\n");  print(d1)
+cat("\nR2 parciales por PC:\n");      print( round(partial_R2, 4) )
+cat("\nComparación m_red vs m (sin PC1):\n"); print(cmp)
+
+```
+
+```{r}
+par(mfrow = c(2,2))
+plot(fit)
+summary(fit)
+```
+
+```{r}
+m <- lm(sqrt(O3) ~ PC1 + PC2 +PC3 +PC4, data = dat_lm)
+par(mfrow = c(2,2))
+plot(m)
+summary(m)
+
+```
+
+```{r}
+library(caret)
+
+dat_lm$O3_categoria <- cut(dat_lm$O3,
+                           breaks = c(-Inf, 58, 90, Inf),
+                           labels = c("Excelente","Aceptable","Malo"),
+                           include.lowest = TRUE)
+
+# 1️⃣ Asegurarnos que la variable respuesta exista como factor
+dat_lm$O3_categoria <- factor(dat_lm$O3_categoria,
+                              levels = c("Excelente","Aceptable","Malo"))
+
+# 2️⃣ Separar train y test (70%-30%)
+set.seed(123)
+train_index <- createDataPartition(dat_lm$O3_categoria, p = 0.7, list = FALSE)
+train <- dat_lm[train_index, ]
+test <- dat_lm[-train_index, ]
+
+# 3️⃣ Ajustar el modelo sobre el conjunto de train
+m <- lm(sqrt(O3) ~ PC1 + PC2 + PC3 + PC4, data = train)
+
+# 4️⃣ Diagnóstico del modelo
+par(mfrow = c(2,2))
+plot(m)
+summary(m)
+
+# 5️⃣ Predecir O3 en test
+test$O3_pred_sqrt <- predict(m, newdata = test)
+
+# 6️⃣ Revertir la transformación sqrt
+test$O3_pred <- test$O3_pred_sqrt^2
+
+# 7️⃣ Convertir la predicción continua en categorías
+test$O3_categoria_pred <- cut(test$O3_pred,
+                              breaks = c(-Inf, 58, 90, Inf),
+                              labels = c("Excelente","Aceptable","Malo"))
+
+# 8️⃣ Asegurarnos de los factores con los mismos niveles
+test$O3_categoria_pred <- factor(test$O3_categoria_pred,
+                                levels = c("Excelente","Aceptable","Malo"))
+
+# 9️⃣ Matriz de confusión y métricas
+conf_matrix <- confusionMatrix(test$O3_categoria_pred, test$O3_categoria)
+print(conf_matrix)
+
+```
+
+# Parte de la evaluacion del modelo
+
+```{r}
+library(caret)
+library(dplyr)
+
+# 1️⃣ Factorizar la variable respuesta
+dat_lm$O3_categoria <- factor(dat_lm$O3_categoria,
+                              levels = c("Excelente","Aceptable","Malo"))
+
+# 2️⃣ Crear pesos inversos a la frecuencia de cada clase
+weights_df <- dat_lm %>%
+  group_by(O3_categoria) %>%
+  summarise(freq = n()) %>%
+  mutate(weight = max(freq) / freq)
+
+# Unir pesos al dataset
+dat_lm <- dat_lm %>%
+  left_join(weights_df %>% select(O3_categoria, weight), by = "O3_categoria")
+
+# 3️⃣ Separar train y test (70%-30%)
+set.seed(123)
+train_index <- createDataPartition(dat_lm$O3_categoria, p = 0.7, list = FALSE)
+train <- dat_lm[train_index, ]
+test <- dat_lm[-train_index, ]
+
+# 4️⃣ Ajustar el modelo ponderado
+m <- lm(sqrt(O3) ~ PC1 + PC2 + PC3 + PC4, data = train, weights = weight)
+
+# 5️⃣ Diagnóstico del modelo
+par(mfrow = c(2,2))
+plot(m)
+summary(m)
+
+# 6️⃣ Predecir O3 en test
+test$O3_pred_sqrt <- predict(m, newdata = test)
+
+# 7️⃣ Revertir la transformación sqrt
+test$O3_pred <- test$O3_pred_sqrt^2
+
+# 8️⃣ Convertir predicción continua en categorías
+test$O3_categoria_pred <- cut(test$O3_pred,
+                              breaks = c(-Inf, 58, 90, Inf),
+                              labels = c("Excelente","Aceptable","Malo"))
+
+# 9️⃣ Asegurarnos que los factores tengan los mismos niveles
+test$O3_categoria_pred <- factor(test$O3_categoria_pred,
+                                levels = c("Excelente","Aceptable","Malo"))
+
+# 🔟 Matriz de confusión
+conf_matrix <- confusionMatrix(test$O3_categoria_pred, test$O3_categoria)
+print(conf_matrix)
+
+```
+
+```{r}
+ggplot(dat_lm, aes(x = O3_categoria, fill = O3_categoria)) +
+  geom_bar(aes(y = (..count..)/sum(..count..))) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Proporción de clases de O3", 
+       x = "Categoría O3", y = "Porcentaje") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Datos de coeficientes (sin intercepto)
+coef_df <- data.frame(
+  PC = c("PC1", "PC2", "PC3", "PC4"),
+  Coef = c(.697350, 0.199773, -0.351547, -0.021079),
+  Variables = c("NOX, PM2.5", "TOUT, RH", "RAINF, SO2", "CO, PRS")
+)
+
+# Agregar magnitud para color
+coef_df <- coef_df %>%
+  mutate(Magnitude = abs(Coef),
+         Direction = ifelse(Coef > 0, "Positivo", "Negativo"))
+
+# Barplot con color según magnitud y dirección
+ggplot(coef_df, aes(x = reorder(PC, Coef), y = Coef, fill = Direction)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  scale_fill_manual(values = c("Positivo" = "steelblue", "Negativo" = "tomato")) +
+  geom_text(aes(label = Variables), hjust = ifelse(coef_df$Coef > 0, -0.05, 1.05)) +
+  labs(x = "Componente", y = "Coeficiente", fill = "Dirección",
+       title = "Coeficientes de los PCs y su interpretación") +
+  theme_minimal()
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+# Crear un dataframe para visualización
+dat_plot <- dat_lm %>%
+  select(O3) %>%
+  mutate(O3_sqrt = sqrt(O3)) %>%
+  pivot_longer(cols = c(O3, O3_sqrt), names_to = "Tipo", values_to = "Valor")
+
+# Histograma comparativo
+ggplot(dat_plot, aes(x = Valor, fill = Tipo)) +
+  geom_histogram(alpha = 0.6, position = "identity", bins = 50) +
+  facet_wrap(~Tipo, scales = "free") +
+  labs(title = "Distribución de O3 antes y después de sqrt()",
+       x = "Valor de O3", y = "Frecuencia") +
+  theme_minimal()
+
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Suponiendo que tienes results$O3_real y results$O3_pred
+conf_mat <- table(results$O3_real, results$O3_pred)
+
+# Convertir a dataframe para ggplot
+conf_df <- as.data.frame(conf_mat)
+colnames(conf_df) <- c("Actual","Predicted","Count")
+
+ggplot(conf_df, aes(x=Predicted, y=Actual, fill=Count)) +
+  geom_tile(color="white") +
+  geom_text(aes(label=Count), color="black", size=5) +
+  scale_fill_gradient(low="lightblue", high="darkblue") +
+  theme_minimal() +
+  labs(title="Matriz de Confusión del Modelo")
+
+```
+
+```{r}
+ggplot(test, aes(x=O3_categoria, y=O3_pred, fill=O3_categoria)) +
+  geom_boxplot(alpha=0.7) +
+  theme_minimal() +
+  labs(y="O3 Predicho", x="Categoría Real", title="Distribución de Predicciones por Categoría")
+
+```
+
+```{r}
+ggplot(test, aes(x=O3, y=O3_pred)) +
+  geom_point(alpha=0.3) +
+  geom_abline(slope=1, intercept=0, color="red", linetype="dashed") +
+  theme_minimal() +
+  labs(x="O3 Observado", y="O3 Predicho", 
+       title="Predicciones vs Observado")
+
+```
+
+```{r}
+library(caret)
+library(dplyr)
+
+
+# 1️⃣ Factorizar la variable respuesta
+dat_lm$O3_categoria <- factor(dat_lm$O3_categoria,
+                              levels = c("Excelente","Aceptable","Malo"))
+
+# 2️⃣ Crear pesos inversos a la frecuencia de cada clase
+weights_df <- dat_lm %>%
+  group_by(O3_categoria) %>%
+  summarise(freq = n()) %>%
+  mutate(weight = max(freq) / freq)
+
+# 3️⃣ Agregar la columna weight al dataset original
+dat_lm <- dat_lm %>%
+  left_join(weights_df %>% select(O3_categoria, weight), by = "O3_categoria")
+
+# Comprobar que existe
+head(dat_lm[, c("O3_categoria", "weight")])
+
+# 4️⃣ Configurar validación cruzada 10-fold
+set.seed(123)
+folds <- createFolds(dat_lm$O3_categoria, k = 10, list = TRUE)
+
+# Crear vector para almacenar resultados
+results <- data.frame(O3_real = factor(levels(dat_lm$O3_categoria)[0]),
+                      O3_pred = factor(levels(dat_lm$O3_categoria)[0]))
+
+# 5️⃣ Loop de CV
+for(i in 1:10){
+  test_idx <- folds[[i]]
+  train <- dat_lm[-test_idx, ]
+  test <- dat_lm[test_idx, ]
+  
+  # Ajustar modelo ponderado (weight existe dentro de train)
+  m <- lm(sqrt(O3) ~ PC1 + PC2 + PC3 + PC4, data = train, weights = train$weight)
+  
+  # Predecir O3 en test
+  test$O3_pred_sqrt <- predict(m, newdata = test)
+  test$O3_pred <- test$O3_pred_sqrt^2
+  
+  # Convertir predicción a categorías
+  test$O3_categoria_pred <- cut(test$O3_pred,
+                                breaks = c(-Inf, 58, 90, Inf),
+                                labels = c("Excelente","Aceptable","Malo"))
+  
+  # Forzar niveles iguales
+  test$O3_categoria_pred <- factor(test$O3_categoria_pred,
+                                   levels = levels(dat_lm$O3_categoria))
+  
+  # Guardar resultados
+  results <- rbind(results, 
+                   data.frame(O3_real = test$O3_categoria, 
+                              O3_pred = test$O3_categoria_pred))
+}
+
+# Quitar la fila inicial vacía
+results <- results[-1, ]
+
+# 6️⃣ Matriz de confusión final
+conf_matrix <- confusionMatrix(results$O3_pred, results$O3_real)
+print(conf_matrix)
+
+```
+
+```{r}
+dat_lm
+round(cor(dat_lm%>%select(-O3_categoria, -O3_categoria_pred)),3)
+```
+
+```{r}
+library(lmtest)
+bptest(m)
+```
+
+```{r}
+install.packages("sandwich")
+```
+
+```{r}
+m_log <- m
+coefs <- coef(m_log)
+efectos_pct <- (exp(coefs[-1]) - 1) * 100
+round(efectos_pct, 1)
+pred_log <- predict(m_log)          # en log(1+O3)
+pred_O3  <- exp(pred_log) - 1       # vuelve a O3
+
+rmse_O3 <- sqrt(mean((dat_lm$O3 - pred_O3)^2))
+R2_O3   <- cor(dat_lm$O3, pred_O3)^2
+c(RMSE=rmse_O3, R2_en_O3=R2_O3)
+# Heterocedasticidad
+lmtest::bptest(m_log)   # p>0.05 ideal; si <0.05 aún hay algo de hetero
+car::ncvTest(m_log)
+
+# Normalidad (orientativo; confía más en QQ)
+nortest::ad.test(rstandard(m_log))
+
+# Errores estándar robustos (si hay hetero, para p-values/IC confiables)
+lmtest::coeftest(m_log, vcov = sandwich::vcovHC(m_log, type = "HC3"))
+
+
+```
+
+```{r}
+library(sandwich); library(lmtest)
+
+coeftest(m_log, vcov = vcovHC(m_log, type = "HC3"))
+
+```
+
+```{r}
+library(sandwich); library(lmtest)
+
+# 1) Coeficientes con SE robustos HC3
+V    <- vcovHC(m_log, type = "HC3")
+ct   <- coeftest(m_log, vcov = V)   # igual a lo que ya mostraste
+print(ct)
+
+# 2) IC95% robustos (en escala log) y en % sobre (1+O3)
+b     <- coef(m_log)
+se    <- sqrt(diag(V))
+z     <- qnorm(0.975)
+ci_log <- cbind(lo = b - z*se, hi = b + z*se)
+
+# Efectos % por +1 DE del PC (porque el PCA fue estandarizado)
+ef_pct    <- (exp(b[-1]) - 1) * 100
+ci_pct    <- (exp(ci_log[-1, , drop=FALSE]) - 1) * 100
+resumen <- data.frame(
+  PC = names(ef_pct),
+  efecto_pct = ef_pct,
+  ic95_lo_pct = ci_pct[, "lo"],
+  ic95_hi_pct = ci_pct[, "hi"]
+)
+round(resumen, 2)
+
+```
+
+```{r}
+# suponer m_log = tu lm(...) ya estimado
+library(lmtest); library(sandwich); library(nlme); library(car); library(boot)
+
+# 1) robust SE
+print(coeftest(m_log, vcov = vcovHC(m_log, type = "HC1")))
+
+# 2) plots
+par(mfrow=c(2,2)); plot(m_log); par(mfrow=c(1,1))
+
+# 3) gls con varPower
+gls_mod <- gls(formula(m_log), data = model.frame(m_log),
+               weights = varPower(form = ~ fitted(.)))
+summary(gls_mod)
+
+# 4) wls (heurístico)
+w <- 1 / (fitted(m_log)^2 + 1e-8)
+wls_mod <- lm(formula(m_log), data = model.frame(m_log), weights = w)
+summary(wls_mod)
+
+# 5) bootstrap de coeficientes (ejemplo R=1000)
+boot_fn <- function(data, indices) {
+  d <- data[indices, ]
+  fit <- lm(formula(m_log), data = d)
+  coef(fit)
+}
+set.seed(123)
+b <- boot(model.frame(m_log), boot_fn, R = 1000)
+print(b)  # resumen
+
+```

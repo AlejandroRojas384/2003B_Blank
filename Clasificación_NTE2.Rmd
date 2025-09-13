@@ -91,7 +91,6 @@ fa.parallel(Xscaled, fa="fa", n.iter=100, main="Scree plot")
 ```
 
 Realización de análisis factorial
-
 ```{r}
 fa_result <- fa(Xscaled, nfactors=3, rotate="varimax", fm="ml") 
 print(fa_result, cut=0.4)
@@ -107,6 +106,7 @@ head(factor_scores)
 ```{r}
 cpR <- princomp(Xscaled, cor = TRUE, scores = TRUE)
 summary(cpR)
+
 ```
 
 ## Desarrollo de modelo de regresión logística multinomial
@@ -120,6 +120,26 @@ Y <- as.factor(NTE2$O3_categoria)
 
 ```{r}
 library(caret)
+
+predictors <- as.data.frame(factor_scores) #FACTORES
+train_index <- createDataPartition(Y, p = 0.6, list = FALSE)
+
+train_X <- predictors[train_index, ]
+test_X  <- predictors[-train_index, ]
+
+train_Y <- Y[train_index]
+test_Y  <- Y[-train_index]
+
+```
+
+
+## Regresión Multinomial
+```{r}
+# Ajustar modelo
+multinom_model <- multinom(train_Y ~ ., data = train_X)
+
+# Resumen
+summary(multinom_model)
 ```
 
 ## Ajuste con pesos
@@ -144,8 +164,7 @@ NTE2 <- NTE2 %>%
 ```
 
 
-#Versión
-
+#Versión WHA
 ```{r}
 library(psych)
 
@@ -163,15 +182,13 @@ factor_scores$O3_categoria <- NTE2$O3_categoria
 ```
 
 Verificación de existencia de 3 categorías
-
 ```{r}
 table(factor_scores$O3_categoria)
 ```
-Verificación de nombres de columnas
-
 ```{r}
 colnames(factor_scores)
 ```
+
 
 
 ```{r}
@@ -216,3 +233,6 @@ pred <- predict(model, newdata = test)
 # Matriz de confusión
 confusionMatrix(pred, test$O3_categoria)
 ```
+
+
+
